@@ -10,6 +10,13 @@ import LoginPage from "./pages/login-page"
 import RegisterPage from "./pages/register-page"
 import StudentDashboard from "./pages/student-dashboard"
 import InstructorDashboard from "./pages/instructor-dashboard"
+import ClassroomPage from "./pages/classroom-page"
+import ClassroomStudentsPage from "./pages/classroom-students-page"
+import ProblemBank from "./pages/problem-bank"
+import ProblemDetails from "./pages/problem-details"
+import CreateTestCases from "./pages/create-test-cases"
+import VerifyProblem from "./pages/verify-problem"
+import AssessmentDetails from "./pages/assessment-details"
 
 export default function App() {
   return (
@@ -33,6 +40,62 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={["instructor"]}>
                   <InstructorDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/problem-bank"
+              element={
+                <ProtectedRoute allowedRoles={["instructor"]}>
+                  <ProblemBank />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/problem/:id"
+              element={
+                <ProtectedRoute allowedRoles={["instructor"]}>
+                  <ProblemDetails />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/problem/:id/verify"
+              element={
+                <ProtectedRoute allowedRoles={["instructor"]}>
+                  <VerifyProblem />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/problem/:id/testcases"
+              element={
+                <ProtectedRoute allowedRoles={["instructor"]}>
+                  <CreateTestCases />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructor/assessment/:id"
+              element={
+                <ProtectedRoute allowedRoles={["instructor"]}>
+                  <AssessmentDetails />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/classroom/:id"
+              element={
+                <ProtectedRoute allowedRoles={["instructor", "student"]}>
+                  <ClassroomPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/classroom/:id/students"
+              element={
+                <ProtectedRoute allowedRoles={["instructor"]}>
+                  <ClassroomStudentsPage />
                 </ProtectedRoute>
               }
             />

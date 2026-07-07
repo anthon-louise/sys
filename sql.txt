@@ -50,3 +50,72 @@ CREATE TABLE classroom_students (
     enrolled_at     TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (classroom_id, student_id)
 );
+
+
+-- ---------------------------------------------------------
+-- TABLE: problems
+-- ---------------------------------------------------------
+CREATE TABLE problems (
+    problem_id      SERIAL PRIMARY KEY,
+    teacher_id      INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    title           VARCHAR(100) NOT NULL,
+    description     TEXT,
+    language        VARCHAR(50) NOT NULL,       -- e.g., 'C', 'Java', 'Python'
+    difficulty      VARCHAR(20),                -- e.g., 'Easy', 'Medium', 'Hard'
+    starter_code    TEXT,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE test_cases (
+    test_case_id    SERIAL PRIMARY KEY,
+    problem_id      INT NOT NULL REFERENCES problems(problem_id) ON DELETE CASCADE,
+    input_data      TEXT,                       -- The stdin sent to Judge0
+    expected_output TEXT,                       -- The expected stdout from Judge0
+    is_hidden       BOOLEAN NOT NULL DEFAULT FALSE, -- If true, students can't see it
+    order_index     INT NOT NULL DEFAULT 0      -- To keep test cases in a specific order
+);
+
+
+
+-- ---------------------------------------------------------
+-- TABLE: working_solutions
+-- Stores the teacher's correct solution code, used to 
+-- validate that the test cases are accurate before publishing.
+-- ---------------------------------------------------------
+CREATE TABLE working_solutions (
+    solution_id     SERIAL PRIMARY KEY,
+    problem_id      INT NOT NULL REFERENCES problems(problem_id) ON DELETE CASCADE,
+    source_code     TEXT NOT NULL,              -- The teacher's correct code
+    language        VARCHAR(50) NOT NULL,       -- Language of this specific solution (C, Java, Python)
+    validated_by    INT REFERENCES users(user_id), -- The teacher who ran the validation
+    validated_at    TIMESTAMP                   -- NULL until validated via Judge0
+);
+
+
+-- ---------------------------------------------------------
+-- TABLE: assessments 
+-- Stores the programming assessments assigned by teachers.
+-- ---------------------------------------------------------
+CREATE TABLE assessments (
+    assessment_id       SERIAL PRIMARY KEY,
+    classroom_id        INT NOT NULL REFERENCES classrooms(classroom_id) ON DELETE CASCADE,
+    teacher_id          INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    title               VARCHAR(100) NOT NULL,
+    description         TEXT,
+    assessment_type     VARCHAR(20) NOT NULL,       -- 'Practice', 'Quiz', or 'Exam'
+    academic_term       VARCHAR(20) NOT NULL,       -- 'Midterm' or 'Finals'
+    time_limit_minutes  INT,                        -- NULL means no time limit
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ---------------------------------------------------------
+-- TABLE: assessment_problems (Table 9)
+-- Links problems from the teacher's bank to a specific assessment.
+-- ---------------------------------------------------------
+CREATE TABLE assessment_problems (
+    assessment_id   INT NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
+    problem_id      INT NOT NULL REFERENCES problems(problem_id) ON DELETE CASCADE,
+    problem_order   INT NOT NULL,                   -- The order the problems appear in the assessment
+    PRIMARY KEY (assessment_id, problem_id)         -- Prevents adding the same problem twice
+);
