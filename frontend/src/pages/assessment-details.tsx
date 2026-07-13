@@ -44,13 +44,18 @@ export default function AssessmentDetails() {
       <Link to={`/classroom/${assessment.classroomId}`} style={{ display: "inline-block", marginBottom: "1rem" }}>
         ← Back to Classroom
       </Link>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", gap: "1rem", flexWrap: "wrap" }}>
         <h1>{assessment.title}</h1>
-        <button 
-          onClick={() => setIsAddProblemModalOpen(true)}
-        >
-          Add More Problems
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <Link to={`/instructor/assessment/${id}/focus-logs`} style={{ textDecoration: "none" }}>
+            <button>View Focus Loss Logs</button>
+          </Link>
+          <button 
+            onClick={() => setIsAddProblemModalOpen(true)}
+          >
+            Add More Problems
+          </button>
+        </div>
       </div>
       <div style={{ border: "1px solid #ccc", borderRadius: "8px", padding: "1.5rem", background: "white", marginBottom: "2rem" }}>
         <p><strong>Type:</strong> {assessment.assessmentType}</p>

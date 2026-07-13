@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
 import { useClassroom, useClassroomStudents } from "../hooks/use-classroom"
-import { useClassroomAssessments, useCreateAssessment } from "../hooks/use-assessment"
+import { useClassroomAssessments, useStudentClassroomAssessments, useCreateAssessment } from "../hooks/use-assessment"
 import { useProblems } from "../hooks/use-problem"
 import { useAuth } from "../context/auth-context"
 import { createAssessmentSchema, type CreateAssessmentForm } from "../schemas/assessment.schema"
@@ -13,13 +13,16 @@ export default function ClassroomPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   const { data: classroom, isLoading: classroomLoading } = useClassroom(id)
-  const { data: students } = useClassroomStudents(id)
-  const { data: assessments, isLoading: assessmentsLoading } = useClassroomAssessments(id)
+  const isInstructor = user?.roleName === "instructor"
+  const { data: students } = useClassroomStudents(isInstructor ? id : undefined)
+  const { data: instructorAssessments, isLoading: instructorAssessmentsLoading } = useClassroomAssessments(id)
+  const { data: studentAssessments, isLoading: studentAssessmentsLoading } = useStudentClassroomAssessments(id)
   const { data: problems } = useProblems()
   const createAssessmentMutation = useCreateAssessment()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
-  const isInstructor = user?.roleName === "instructor"
+  const assessments = isInstructor ? instructorAssessments : studentAssessments
+  const assessmentsLoading = isInstructor ? instructorAssessmentsLoading : studentAssessmentsLoading
 
   const { register, handleSubmit, formState: { errors }, reset, watch, setValue } = useForm<CreateAssessmentForm>({
     resolver: zodResolver(createAssessmentSchema),
@@ -92,7 +95,7 @@ export default function ClassroomPage() {
             {assessments.map(assessment => (
               <Link
                 key={assessment.assessmentId}
-                to={`/instructor/assessment/${assessment.assessmentId}`}
+                to={isInstructor ? `/instructor/assessment/${assessment.assessmentId}` : `/student/assessment/${assessment.assessmentId}`}
                 style={{ textDecoration: "none", color: "inherit" }}
               >
                 <div
@@ -123,7 +126,7 @@ export default function ClassroomPage() {
           </div>
         </div>
       ) : (
-        isInstructor && <div style={{ marginTop: "2rem" }}><p>No assessments yet.</p></div>
+        <div style={{ marginTop: "2rem" }}><p>No assessments yet.</p></div>
       )}
 
       {isCreateModalOpen && (

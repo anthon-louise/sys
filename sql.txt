@@ -119,3 +119,61 @@ CREATE TABLE assessment_problems (
     problem_order   INT NOT NULL,                   -- The order the problems appear in the assessment
     PRIMARY KEY (assessment_id, problem_id)         -- Prevents adding the same problem twice
 );
+
+
+
+
+
+-- ---------------------------------------------------------
+-- TABLE: submissions
+-- Stores the actual code a student submitted for a specific 
+-- problem within an assessment.
+-- ---------------------------------------------------------
+CREATE TABLE submissions (
+    submission_id       SERIAL PRIMARY KEY,
+    assessment_id       INT NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
+    student_id          INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    problem_id          INT NOT NULL REFERENCES problems(problem_id) ON DELETE CASCADE,
+    source_code         TEXT NOT NULL,              -- The student's code
+    language            VARCHAR(50) NOT NULL,       -- Language used (C, Java, Python)
+    score               DECIMAL(5,2) NOT NULL DEFAULT 0, -- Percentage or points (e.g., 85.50)
+    status              VARCHAR(20) NOT NULL,       -- 'Correct', 'Incorrect', 'Partial', 'Error'
+    execution_time_ms   INT,                        -- Total time taken across all test cases
+    memory_used_kb      INT,                        -- Max memory used across all test cases
+    submitted_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    
+    -- Prevents a student from having multiple submission rows for the exact same problem/assessment
+    UNIQUE(assessment_id, student_id, problem_id) 
+);
+
+-- ---------------------------------------------------------
+-- TABLE: submission_test_results
+-- Stores the detailed output of every test case run against 
+-- a student's submission. Used to show feedback.
+-- ---------------------------------------------------------
+CREATE TABLE submission_test_results (
+    result_id           SERIAL PRIMARY KEY,
+    submission_id       INT NOT NULL REFERENCES submissions(submission_id) ON DELETE CASCADE,
+    test_case_id        INT NOT NULL REFERENCES test_cases(test_case_id) ON DELETE CASCADE,
+    actual_output       TEXT,                       -- What the student's code actually printed
+    passed              BOOLEAN NOT NULL DEFAULT FALSE, -- Did it match expected_output?
+    execution_time_ms   INT,                        -- Time for this specific test case
+    error_type          VARCHAR(50),                -- 'None', 'Compilation Error', 'Runtime Error', 'Time Limit', 'Wrong Answer'
+    
+    UNIQUE(submission_id, test_case_id)
+);
+
+
+-- ---------------------------------------------------------
+-- TABLE: focus_loss_logs
+-- Records every time a student leaves or switches away from 
+-- the assessment window during an active session.
+-- ---------------------------------------------------------
+CREATE TABLE focus_loss_logs (
+    log_id              SERIAL PRIMARY KEY,
+    assessment_id       INT NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
+    student_id          INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    event_type          VARCHAR(50) NOT NULL,       -- e.g., 'blur', 'visibilitychange'
+    occurred_at         TIMESTAMP NOT NULL DEFAULT NOW(),
+    duration_seconds    INT NOT NULL DEFAULT 0      -- How long they were away
+);

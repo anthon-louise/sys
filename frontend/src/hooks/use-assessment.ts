@@ -40,11 +40,33 @@ export function useClassroomAssessments(classroomId: string | undefined) {
   })
 }
 
+export function useStudentClassroomAssessments(classroomId: string | undefined) {
+  return useQuery({
+    queryKey: ["studentClassroomAssessments", classroomId],
+    queryFn: async (): Promise<Assessment[]> => {
+      const res = await api.get(`/assessments/student/classrooms/${classroomId}/assessments`)
+      return res.data.data
+    },
+    enabled: !!classroomId
+  })
+}
+
 export function useAssessment(assessmentId: string | undefined) {
   return useQuery({
     queryKey: ["assessment", assessmentId],
     queryFn: async (): Promise<AssessmentWithProblems> => {
       const res = await api.get(`/assessments/${assessmentId}`)
+      return res.data.data
+    },
+    enabled: !!assessmentId
+  })
+}
+
+export function useStudentAssessment(assessmentId: string | undefined) {
+  return useQuery({
+    queryKey: ["studentAssessment", assessmentId],
+    queryFn: async (): Promise<AssessmentWithProblems> => {
+      const res = await api.get(`/assessments/student/assessments/${assessmentId}`)
       return res.data.data
     },
     enabled: !!assessmentId
@@ -100,5 +122,83 @@ export function useAttachProblemToAssessment(assessmentId: string | undefined) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["assessment", assessmentId] })
     }
+  })
+}
+
+export function useTestCode() {
+  return useMutation({
+    mutationFn: async (data: { problemId: number, sourceCode: string, language: string }) => {
+      const res = await api.post("/assessments/student/test", data)
+      return res.data.data
+    }
+  })
+}
+
+export function useSubmitAssessment(assessmentId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (problemSolutions: { problemId: number, sourceCode: string }[]) => {
+      const res = await api.post(`/assessments/student/assessments/${assessmentId}/submit`, { problemSolutions })
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["studentAssessment", assessmentId] })
+      queryClient.invalidateQueries({ queryKey: ["studentSubmission", assessmentId] })
+    }
+  })
+}
+
+export function useStudentSubmission(assessmentId: string | undefined) {
+  return useQuery({
+    queryKey: ["studentSubmission", assessmentId],
+    queryFn: async () => {
+      const res = await api.get(`/assessments/student/assessments/${assessmentId}/submission`)
+      return res.data.data
+    },
+    enabled: !!assessmentId
+  })
+}
+
+export function useProblemTestCases(problemId: number | undefined) {
+  return useQuery({
+    queryKey: ["problemTestCases", problemId],
+    queryFn: async () => {
+      const res = await api.get(`/assessments/student/problems/${problemId}/test-cases`)
+      return res.data.data
+    },
+    enabled: !!problemId
+  })
+}
+
+// Focus loss hooks
+export function useReportFocusLoss(assessmentId: string | undefined) {
+  return useMutation({
+    mutationFn: async (data: { event_type: string, duration_seconds: number }) => {
+      const res = await api.post(`/assessments/${assessmentId}/focus-loss`, data)
+      return res.data.data
+    }
+  })
+}
+
+export function useFocusLossSummary(assessmentId: string | undefined) {
+  return useQuery({
+    queryKey: ["focusLossSummary", assessmentId],
+    queryFn: async () => {
+      const res = await api.get(`/assessments/${assessmentId}/focus-loss/summary`)
+      return res.data.data
+    },
+    enabled: !!assessmentId
+  })
+}
+
+export function useStudentFocusLog(assessmentId: string | undefined, studentId: number | undefined) {
+  return useQuery({
+    queryKey: ["studentFocusLog", assessmentId, studentId],
+    queryFn: async () => {
+      const res = await api.get(`/assessments/${assessmentId}/focus-loss/students/${studentId}`)
+      return res.data.data
+    },
+    enabled: !!assessmentId && !!studentId
   })
 }

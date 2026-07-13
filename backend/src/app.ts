@@ -13,7 +13,8 @@ import testcaseRoutes from "./modules/testcase.js";
 import workingSolutionRoutes from "./modules/workingsolution.js";
 import { assessmentRouter } from "./modules/assessment.js";
 
-import { errorHandler } from "./middlewares/error.middlware.js";
+import { errorHandler } from "./middlewares/error.middlware.js"
+import anticheatRouter from "./modules/anticheat.js";
 
 dotenv.config();
 
@@ -82,7 +83,7 @@ const agent = new http.Agent({
 
 const judge0 = axios.create({
   baseURL: JUDGE0_API,
-  timeout: 30000,
+  timeout: 20000,
   httpAgent: agent
 });
 
@@ -142,6 +143,7 @@ app.post('/run', async (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/classrooms", classroomRoutes);
 app.use("/api/assessments", assessmentRouter);
+app.use("/api/assessments/:id", anticheatRouter);
 app.use("/api/problems", problemRoutes);
 app.use("/api/problems/:id/testcases", testcaseRoutes);
 app.use("/api/problems/:id/validate", workingSolutionRoutes);

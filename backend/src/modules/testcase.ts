@@ -6,7 +6,7 @@ import { ApiError } from "../utils/ApiError.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { protect, instructorOnly, AuthRequest } from "../middlewares/auth.middleware.js"
 
-const testcaseRouter = Router()
+const testcaseRouter = Router({ mergeParams: true })
 
 // -- types --
 
