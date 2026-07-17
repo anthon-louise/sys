@@ -10,3 +10,10 @@ export const joinClassroomSchema = z.object({
   joinCode: z.string().length(6, "Join code must be 6 characters"),
 })
 export type JoinClassroomForm = z.infer<typeof joinClassroomSchema>
+
+export const updateClassroomSchema = z.object({
+  classroomName: z.string().min(1).max(100).optional(),
+  schoolYear: z.string().min(1).max(20).optional(),
+  isActive: z.boolean().optional()
+})
+export type UpdateClassroomForm = z.infer<typeof updateClassroomSchema>

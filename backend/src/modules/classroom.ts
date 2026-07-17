@@ -30,6 +30,14 @@ export const CreateClassroomSchema = z.object({
 
 export type CreateClassroomInput = z.infer<typeof CreateClassroomSchema>
 
+export const UpdateClassroomSchema = z.object({
+  classroomName: z.string().min(1).max(100).optional(),
+  schoolYear: z.string().min(1).max(20).optional(),
+  isActive: z.boolean().optional()
+})
+
+export type UpdateClassroomInput = z.infer<typeof UpdateClassroomSchema>
+
 export const JoinClassroomSchema = z.object({
   joinCode: z.string().length(6)
 })
@@ -238,6 +246,99 @@ classroomRouter.post(
       }
     }
     res.status(201).json(new ApiResponse(true, "Classroom created successfully", classroom))
+  })
+)
+
+// PUT /api/classrooms/:id
+classroomRouter.put(
+  "/:id",
+  protect,
+  instructorOnly,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params
+    const userId = req.user!.userId
+    const updateData = UpdateClassroomSchema.parse(req.body)
+
+    // Verify ownership
+    const { rows: classroomRows } = await db.query(
+      `SELECT classroom_id FROM classrooms WHERE classroom_id = $1 AND teacher_id = $2`,
+      [id, userId]
+    )
+    if (!classroomRows[0]) {
+      throw new ApiError("Classroom not found", 404)
+    }
+
+    // Build update query
+    const updates: string[] = []
+    const values: any[] = []
+    let paramCount = 0
+
+    if (updateData.classroomName !== undefined) {
+      paramCount++
+      updates.push(`classroom_name = $${paramCount}`)
+      values.push(updateData.classroomName)
+    }
+    if (updateData.schoolYear !== undefined) {
+      paramCount++
+      updates.push(`school_year = $${paramCount}`)
+      values.push(updateData.schoolYear)
+    }
+    if (updateData.isActive !== undefined) {
+      paramCount++
+      updates.push(`is_active = $${paramCount}`)
+      values.push(updateData.isActive)
+    }
+
+    if (updates.length === 0) {
+      throw new ApiError("No fields to update", 400)
+    }
+
+    paramCount++
+    values.push(id)
+
+    const { rows } = await db.query(
+      `UPDATE classrooms SET ${updates.join(", ")} 
+       WHERE classroom_id = $${paramCount}
+       RETURNING
+         classroom_id   AS "classroomId",
+         teacher_id     AS "teacherId",
+         classroom_name AS "classroomName",
+         join_code      AS "joinCode",
+         school_year    AS "schoolYear",
+         is_active      AS "isActive",
+         created_at     AS "createdAt"`,
+      values
+    )
+
+    res.status(200).json(new ApiResponse(true, "Classroom updated successfully", rows[0]))
+  })
+)
+
+// DELETE /api/classrooms/:id
+classroomRouter.delete(
+  "/:id",
+  protect,
+  instructorOnly,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params
+    const userId = req.user!.userId
+
+    // Verify ownership
+    const { rows: classroomRows } = await db.query(
+      `SELECT classroom_id FROM classrooms WHERE classroom_id = $1 AND teacher_id = $2`,
+      [id, userId]
+    )
+    if (!classroomRows[0]) {
+      throw new ApiError("Classroom not found", 404)
+    }
+
+    // Delete classroom - since foreign keys have ON DELETE CASCADE, this will delete related records
+    await db.query(
+      `DELETE FROM classrooms WHERE classroom_id = $1`,
+      [id]
+    )
+
+    res.status(200).json(new ApiResponse(true, "Classroom deleted successfully", null))
   })
 )
 

@@ -115,3 +115,64 @@ export function useValidateProblem(problemId: string | undefined) {
     },
   })
 }
+
+export function useUpdateProblem(problemId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: {
+      title?: string
+      description?: string
+      language?: string
+      difficulty?: string
+      starterCode?: string
+    }) => {
+      const res = await api.put(`/problems/${problemId}`, data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["problem", problemId] })
+      queryClient.invalidateQueries({ queryKey: ["problems"] })
+    },
+  })
+}
+
+export function useDeleteProblem() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (problemId: string) => {
+      await api.delete(`/problems/${problemId}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["problems"] })
+    },
+  })
+}
+
+export function useUpdateTestCase(problemId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ testCaseId, data }: { testCaseId: number; data: { inputData?: string; expectedOutput?: string; isHidden?: boolean; orderIndex?: number } }) => {
+      const res = await api.put(`/problems/${problemId}/testcases/${testCaseId}`, data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["testCases", problemId] })
+    },
+  })
+}
+
+export function useDeleteTestCase(problemId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (testCaseId: number) => {
+      await api.delete(`/problems/${problemId}/testcases/${testCaseId}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["testCases", problemId] })
+    },
+  })
+}

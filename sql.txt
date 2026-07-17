@@ -163,17 +163,29 @@ CREATE TABLE submission_test_results (
     UNIQUE(submission_id, test_case_id)
 );
 
-
 -- ---------------------------------------------------------
--- TABLE: focus_loss_logs
--- Records every time a student leaves or switches away from 
--- the assessment window during an active session.
+-- TABLE: student_assessment_sessions
+-- Tracks when students start assessments and their time limits.
 -- ---------------------------------------------------------
-CREATE TABLE focus_loss_logs (
-    log_id              SERIAL PRIMARY KEY,
+CREATE TABLE student_assessment_sessions (
+    session_id          SERIAL PRIMARY KEY,
     assessment_id       INT NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
     student_id          INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    event_type          VARCHAR(50) NOT NULL,       -- e.g., 'blur', 'visibilitychange'
-    occurred_at         TIMESTAMP NOT NULL DEFAULT NOW(),
-    duration_seconds    INT NOT NULL DEFAULT 0      -- How long they were away
+    started_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    ends_at             TIMESTAMP,  -- NULL means no time limit
+    submitted_at        TIMESTAMP,  -- NULL until submission
+    UNIQUE(assessment_id, student_id)
 );
+
+-- Publish/Draft toggle
+ALTER TABLE assessments 
+ADD COLUMN is_published BOOLEAN NOT NULL DEFAULT FALSE;
+
+
+-- Schedule Start Time (NULL means available immediately)
+ALTER TABLE assessments 
+ADD COLUMN opens_at TIMESTAMP;
+
+-- Schedule End Time / Deadline (NULL means no deadline)
+ALTER TABLE assessments 
+ADD COLUMN closes_at TIMESTAMP;

@@ -22,6 +22,9 @@ export interface Assessment {
   timeLimitMinutes: number | null
   createdAt: Date
   updatedAt: Date
+  isPublished: boolean
+  opensAt: Date | null
+  closesAt: Date | null
 }
 
 export interface AssessmentProblem {
@@ -43,7 +46,19 @@ export const CreateAssessmentSchema = z.object({
   description: z.string().optional(),
   assessmentType: z.enum(["Practice", "Quiz", "Exam"]),
   academicTerm: z.enum(["Midterm", "Finals"]),
-  timeLimitMinutes: z.number().int().optional()
+  timeLimitMinutes: z.number().int().optional(),
+  opensAt: z.string().datetime({ offset: true }).optional().nullable(),
+  closesAt: z.string().datetime({ offset: true }).optional().nullable()
+})
+
+export const UpdateAssessmentSchema = z.object({
+  title: z.string().min(1).max(100).optional(),
+  description: z.string().optional(),
+  assessmentType: z.enum(["Practice", "Quiz", "Exam"]).optional(),
+  academicTerm: z.enum(["Midterm", "Finals"]).optional(),
+  timeLimitMinutes: z.number().int().optional().nullable(),
+  opensAt: z.string().datetime({ offset: true }).optional().nullable(),
+  closesAt: z.string().datetime({ offset: true }).optional().nullable()
 })
 
 export const AttachProblemSchema = z.object({
@@ -61,12 +76,12 @@ assessmentRouter.post(
   protect,
   instructorOnly,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { classroomId, title, description, assessmentType, academicTerm, timeLimitMinutes } = CreateAssessmentSchema.parse(req.body)
+    const { classroomId, title, description, assessmentType, academicTerm, timeLimitMinutes, opensAt, closesAt } = CreateAssessmentSchema.parse(req.body)
     const teacherId = req.user!.userId
 
     const { rows } = await db.query<Assessment>(
-      `INSERT INTO assessments (classroom_id, teacher_id, title, description, assessment_type, academic_term, time_limit_minutes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO assessments (classroom_id, teacher_id, title, description, assessment_type, academic_term, time_limit_minutes, opens_at, closes_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING
          assessment_id      AS "assessmentId",
          classroom_id       AS "classroomId",
@@ -77,8 +92,11 @@ assessmentRouter.post(
          academic_term      AS "academicTerm",
          time_limit_minutes AS "timeLimitMinutes",
          created_at         AS "createdAt",
-         updated_at         AS "updatedAt"`,
-      [classroomId, teacherId, title, description || null, assessmentType, academicTerm, timeLimitMinutes || null]
+         updated_at         AS "updatedAt",
+         is_published       AS "isPublished",
+         opens_at AS "opensAt",
+         closes_at AS "closesAt"`,
+      [classroomId, teacherId, title, description || null, assessmentType, academicTerm, timeLimitMinutes || null, opensAt || null, closesAt || null]
     )
 
     res.status(201).json(new ApiResponse(true, "Assessment created successfully", rows[0]))
@@ -111,7 +129,10 @@ assessmentRouter.get(
          academic_term      AS "academicTerm",
          time_limit_minutes AS "timeLimitMinutes",
          created_at         AS "createdAt",
-         updated_at         AS "updatedAt"
+         updated_at         AS "updatedAt",
+         is_published       AS "isPublished",
+         opens_at AS "opensAt",
+         closes_at AS "closesAt"
        FROM assessments
        WHERE assessment_id = $1 AND teacher_id = $2`,
       [assessmentId, teacherId]
@@ -144,6 +165,226 @@ assessmentRouter.get(
         problems: problemsRows
       })
     )
+  })
+)
+
+// PUT /api/assessments/:id
+assessmentRouter.put(
+  "/:id",
+  protect,
+  instructorOnly,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const id = req.params.id as string
+    const teacherId = req.user!.userId
+    const updateData = UpdateAssessmentSchema.parse(req.body)
+
+    const assessmentId = parseInt(id, 10)
+    if (Number.isNaN(assessmentId)) {
+      throw new ApiError("Invalid assessment id", 400)
+    }
+
+    // Verify assessment ownership
+    const { rows: assessmentRows } = await db.query(
+      `SELECT assessment_id FROM assessments WHERE assessment_id = $1 AND teacher_id = $2`,
+      [assessmentId, teacherId]
+    )
+    if (!assessmentRows[0]) {
+      throw new ApiError("Assessment not found", 404)
+    }
+
+    // Check if there are any submissions or started sessions - optional but safe
+    const { rows: submissionRows } = await db.query(
+      `SELECT COUNT(*) AS count FROM submissions WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+    const hasSubmissions = Number(submissionRows[0].count) > 0
+
+    const { rows: sessionRows } = await db.query(
+      `SELECT COUNT(*) AS count FROM student_assessment_sessions WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+    const hasSessions = Number(sessionRows[0].count) > 0
+
+    if (hasSubmissions || hasSessions) {
+      throw new ApiError("Cannot update an assessment that has already been started or has submissions", 400)
+    }
+
+    // Build update query
+    const updates: string[] = []
+    const values: any[] = []
+    let paramCount = 0
+
+    if (updateData.title !== undefined) {
+      paramCount++
+      updates.push(`title = $${paramCount}`)
+      values.push(updateData.title)
+    }
+    if (updateData.description !== undefined) {
+      paramCount++
+      updates.push(`description = $${paramCount}`)
+      values.push(updateData.description || null)
+    }
+    if (updateData.assessmentType !== undefined) {
+      paramCount++
+      updates.push(`assessment_type = $${paramCount}`)
+      values.push(updateData.assessmentType)
+    }
+    if (updateData.academicTerm !== undefined) {
+      paramCount++
+      updates.push(`academic_term = $${paramCount}`)
+      values.push(updateData.academicTerm)
+    }
+    if (updateData.timeLimitMinutes !== undefined) {
+      paramCount++
+      updates.push(`time_limit_minutes = $${paramCount}`)
+      values.push(updateData.timeLimitMinutes)
+    }
+    if (updateData.opensAt !== undefined) {
+      paramCount++
+      updates.push(`opens_at = $${paramCount}`)
+      values.push(updateData.opensAt || null)
+    }
+    if (updateData.closesAt !== undefined) {
+      paramCount++
+      updates.push(`closes_at = $${paramCount}`)
+      values.push(updateData.closesAt || null)
+    }
+
+    if (updates.length === 0) {
+      throw new ApiError("No fields to update", 400)
+    }
+
+    paramCount++
+    values.push(assessmentId)
+
+    const { rows } = await db.query<Assessment>(
+      `UPDATE assessments 
+       SET ${updates.join(", ")}, updated_at = NOW() 
+       WHERE assessment_id = $${paramCount}
+       RETURNING
+         assessment_id      AS "assessmentId",
+         classroom_id       AS "classroomId",
+         teacher_id         AS "teacherId",
+         title,
+         description,
+         assessment_type    AS "assessmentType",
+         academic_term      AS "academicTerm",
+         time_limit_minutes AS "timeLimitMinutes",
+         created_at         AS "createdAt",
+         updated_at         AS "updatedAt",
+         is_published       AS "isPublished",
+         opens_at AS "opensAt",
+         closes_at AS "closesAt"`,
+      values
+    )
+
+    res.status(200).json(new ApiResponse(true, "Assessment updated successfully", rows[0]))
+  })
+)
+
+// DELETE /api/assessments/:id
+assessmentRouter.delete(
+  "/:id",
+  protect,
+  instructorOnly,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const id = req.params.id as string
+    const teacherId = req.user!.userId
+
+    const assessmentId = parseInt(id, 10)
+    if (Number.isNaN(assessmentId)) {
+      throw new ApiError("Invalid assessment id", 400)
+    }
+
+    // Verify assessment ownership
+    const { rows: assessmentRows } = await db.query(
+      `SELECT assessment_id FROM assessments WHERE assessment_id = $1 AND teacher_id = $2`,
+      [assessmentId, teacherId]
+    )
+    if (!assessmentRows[0]) {
+      throw new ApiError("Assessment not found", 404)
+    }
+
+    // Delete assessment - foreign keys with ON DELETE CASCADE will handle related records
+    await db.query(
+      `DELETE FROM assessments WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+
+    res.status(200).json(new ApiResponse(true, "Assessment deleted successfully", null))
+  })
+)
+
+// PUT /api/assessments/:id/publish
+assessmentRouter.put(
+  "/:id/publish",
+  protect,
+  instructorOnly,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const id = req.params.id as string
+    const teacherId = req.user!.userId
+
+    const assessmentId = parseInt(id, 10)
+    if (Number.isNaN(assessmentId)) {
+      throw new ApiError("Invalid assessment id", 400)
+    }
+
+    // Verify assessment ownership
+    const { rows: assessmentRows } = await db.query<Assessment>(
+      `SELECT
+         assessment_id      AS "assessmentId",
+         classroom_id       AS "classroomId",
+         teacher_id         AS "teacherId",
+         title,
+         description,
+         assessment_type    AS "assessmentType",
+         academic_term      AS "academicTerm",
+         time_limit_minutes AS "timeLimitMinutes",
+         created_at         AS "createdAt",
+         updated_at         AS "updatedAt",
+         is_published       AS "isPublished",
+         opens_at AS "opensAt",
+         closes_at AS "closesAt"
+       FROM assessments
+       WHERE assessment_id = $1 AND teacher_id = $2`,
+      [assessmentId, teacherId]
+    )
+    if (!assessmentRows[0]) {
+      throw new ApiError("Assessment not found", 404)
+    }
+
+    // Check if assessment has at least one problem
+    const { rows: problemRows } = await db.query(
+      `SELECT COUNT(*) AS count FROM assessment_problems WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+    if (Number(problemRows[0].count) === 0) {
+      throw new ApiError("Cannot publish an assessment with no problems", 400)
+    }
+
+    // Update is_published to true
+    const { rows } = await db.query<Assessment>(
+      `UPDATE assessments
+       SET is_published = true, updated_at = NOW()
+       WHERE assessment_id = $1
+       RETURNING
+         assessment_id      AS "assessmentId",
+         classroom_id       AS "classroomId",
+         teacher_id         AS "teacherId",
+         title,
+         description,
+         assessment_type    AS "assessmentType",
+         academic_term      AS "academicTerm",
+         time_limit_minutes AS "timeLimitMinutes",
+         created_at         AS "createdAt",
+         updated_at         AS "updatedAt",
+         is_published       AS "isPublished",
+         opens_at AS "opensAt",
+         closes_at AS "closesAt"`,
+      [assessmentId]
+    )
+
+    res.status(200).json(new ApiResponse(true, "Assessment published successfully", rows[0]))
   })
 )
 
@@ -245,7 +486,10 @@ assessmentRouter.get(
          academic_term      AS "academicTerm",
          time_limit_minutes AS "timeLimitMinutes",
          created_at         AS "createdAt",
-         updated_at         AS "updatedAt"
+         updated_at         AS "updatedAt",
+         is_published       AS "isPublished",
+         opens_at AS "opensAt",
+         closes_at AS "closesAt"
        FROM assessments
        WHERE classroom_id = $1
        ORDER BY created_at DESC`,
@@ -278,6 +522,7 @@ assessmentRouter.get(
       throw new ApiError("Not enrolled in this classroom", 403)
     }
 
+    const now = new Date()
     const { rows } = await db.query<Assessment>(
       `SELECT
          assessment_id      AS "assessmentId",
@@ -289,11 +534,18 @@ assessmentRouter.get(
          academic_term    AS "academicTerm",
          time_limit_minutes AS "timeLimitMinutes",
          created_at     AS "createdAt",
-         updated_at     AS "updatedAt"
+         updated_at     AS "updatedAt",
+         is_published       AS "isPublished",
+         opens_at AS "opensAt",
+         closes_at AS "closesAt"
        FROM assessments
-       WHERE classroom_id = $1
+       WHERE 
+         classroom_id = $1 AND 
+         is_published = true AND 
+         (opens_at IS NULL OR opens_at <= $2) AND 
+         (closes_at IS NULL OR closes_at >= $2)
        ORDER BY created_at DESC`,
-      [classroomId]
+      [classroomId, now]
     )
 
     res.status(200).json(new ApiResponse(true, "Assessments fetched successfully", rows))
@@ -313,7 +565,8 @@ assessmentRouter.get(
       throw new ApiError("Invalid assessment id", 400)
     }
 
-    // Get assessment and check enrollment
+    // Get assessment and check enrollment and schedule
+    const now = new Date()
     const { rows: assessmentRows } = await db.query<Assessment>(
       `SELECT
          a.assessment_id      AS "assessmentId",
@@ -325,11 +578,19 @@ assessmentRouter.get(
          a.academic_term    AS "academicTerm",
          a.time_limit_minutes AS "timeLimitMinutes",
          a.created_at     AS "createdAt",
-         a.updated_at     AS "updatedAt"
+         a.updated_at     AS "updatedAt",
+         a.is_published       AS "isPublished",
+         a.opens_at AS "opensAt",
+         a.closes_at AS "closesAt"
        FROM assessments a
        JOIN classroom_students cs ON a.classroom_id = cs.classroom_id
-       WHERE a.assessment_id = $1 AND cs.student_id = $2`,
-      [assessmentId, userId]
+       WHERE 
+         a.assessment_id = $1 AND 
+         cs.student_id = $2 AND 
+         a.is_published = true AND
+         (a.opens_at IS NULL OR a.opens_at <= $3) AND
+         (a.closes_at IS NULL OR a.closes_at >= $3)`,
+      [assessmentId, userId, now]
     )
     if (!assessmentRows[0]) {
       throw new ApiError("Assessment not found", 404)
@@ -509,15 +770,35 @@ assessmentRouter.post(
       throw new ApiError("Invalid assessment id", 400)
     }
 
-    // Verify student is in the classroom for this assessment
+    const now = new Date()
+
+    // Verify student is in the classroom, assessment is published, and schedule is active
     const { rows: enrollRows } = await db.query(
       `SELECT cs.student_id 
        FROM assessments a
        JOIN classroom_students cs ON a.classroom_id = cs.classroom_id
-       WHERE a.assessment_id = $1 AND cs.student_id = $2`,
-      [assessmentId, userId]
+       WHERE 
+         a.assessment_id = $1 AND 
+         cs.student_id = $2 AND 
+         a.is_published = true AND
+         (a.opens_at IS NULL OR a.opens_at <= $3) AND
+         (a.closes_at IS NULL OR a.closes_at >= $3)`,
+      [assessmentId, userId, now]
     )
     if (!enrollRows[0]) throw new ApiError("Not allowed to submit this assessment", 403)
+
+    // Check session
+    const { rows: sessionRows } = await db.query(
+      `SELECT ends_at, submitted_at FROM student_assessment_sessions WHERE assessment_id = $1 AND student_id = $2`,
+      [assessmentId, userId]
+    )
+    const session = sessionRows[0]
+    if (!session) throw new ApiError("Session not found", 400)
+    if (session.submittedAt) throw new ApiError("Assessment already submitted", 400)
+    // Only allow submission before or at endsAt
+    if (session.endsAt && new Date(session.endsAt) < new Date()) {
+      throw new ApiError("Assessment time expired", 400)
+    }
 
     // Get problems for this assessment
     const { rows: assessmentProblems } = await db.query(
@@ -529,7 +810,7 @@ assessmentRouter.post(
     let totalScore = 0
 
     for (const ap of assessmentProblems) {
-      const solution = problemSolutions.find((s: any) => s.problemId === ap.problemId)
+      const solution = problemSolutions?.find((s: any) => s.problemId === ap.problemId)
       if (!solution) continue // Skip if no solution for this problem
 
       const { problemId, sourceCode } = solution
@@ -633,6 +914,14 @@ assessmentRouter.post(
       submissions.push(submission)
     }
 
+    // Mark session as submitted
+    await db.query(
+      `UPDATE student_assessment_sessions 
+       SET submitted_at = NOW() 
+       WHERE assessment_id = $1 AND student_id = $2`,
+      [assessmentId, userId]
+    )
+
     const overallScore = assessmentProblems.length ? totalScore / assessmentProblems.length : 0
 
     res.status(200).json(new ApiResponse(true, "Assessment submitted", {
@@ -708,6 +997,109 @@ assessmentRouter.get(
     }))
   })
 )
+
+// -- Session endpoints
+assessmentRouter.post(
+  "/student/assessments/:id/start-session",
+  protect,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const assessmentId = parseInt(req.params.id, 10)
+    const userId = req.user!.userId
+
+    if (Number.isNaN(assessmentId)) throw new ApiError("Invalid assessment id", 400)
+
+    const now = new Date()
+
+    // Verify student is enrolled in the classroom, assessment is published, and schedule is active
+    const { rows: enrollRows } = await db.query(
+      `SELECT cs.student_id, a.opens_at, a.closes_at 
+       FROM assessments a
+       JOIN classroom_students cs ON a.classroom_id = cs.classroom_id
+       WHERE 
+         a.assessment_id = $1 AND 
+         cs.student_id = $2 AND 
+         a.is_published = true AND
+         (a.opens_at IS NULL OR a.opens_at <= $3) AND
+         (a.closes_at IS NULL OR a.closes_at >= $3)`,
+      [assessmentId, userId, now]
+    )
+    if (!enrollRows[0]) throw new ApiError("Not allowed to take this assessment", 403)
+
+    // Check if there's already a session
+    const { rows: existingRows } = await db.query(
+      `SELECT
+        session_id AS "sessionId",
+        assessment_id AS "assessmentId",
+        student_id AS "studentId",
+        started_at AS "startedAt",
+        ends_at AS "endsAt",
+        submitted_at AS "submittedAt"
+       FROM student_assessment_sessions
+       WHERE assessment_id = $1 AND student_id = $2`,
+      [assessmentId, userId]
+    )
+
+    if (existingRows[0]) {
+      return res.status(200).json(new ApiResponse(true, "Session already exists", existingRows[0]))
+    }
+
+    // Get assessment to calculate end time if needed
+    const { rows: assessmentRows } = await db.query(
+      `SELECT time_limit_minutes FROM assessments WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+    const timeLimitMinutes = assessmentRows[0].time_limit_minutes
+
+    let endsAt: Date | null = null
+    if (timeLimitMinutes) {
+      endsAt = new Date(Date.now() + timeLimitMinutes * 60 * 1000)
+    }
+
+    // Create new session
+    const { rows } = await db.query(
+      `INSERT INTO student_assessment_sessions (assessment_id, student_id, ends_at)
+       VALUES ($1, $2, $3)
+       RETURNING
+         session_id AS "sessionId",
+         assessment_id AS "assessmentId",
+         student_id AS "studentId",
+         started_at AS "startedAt",
+         ends_at AS "endsAt",
+         submitted_at AS "submittedAt"`,
+      [assessmentId, userId, endsAt]
+    )
+
+    res.status(201).json(new ApiResponse(true, "Session started", rows[0]))
+  })
+)
+
+assessmentRouter.get(
+  "/student/assessments/:id/session",
+  protect,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const assessmentId = parseInt(req.params.id, 10)
+    const userId = req.user!.userId
+
+    if (Number.isNaN(assessmentId)) throw new ApiError("Invalid assessment id", 400)
+
+    const { rows } = await db.query(
+      `SELECT
+        session_id AS "sessionId",
+        assessment_id AS "assessmentId",
+        student_id AS "studentId",
+        started_at AS "startedAt",
+        ends_at AS "endsAt",
+        submitted_at AS "submittedAt"
+       FROM student_assessment_sessions
+       WHERE assessment_id = $1 AND student_id = $2`,
+      [assessmentId, userId]
+    )
+
+    res.status(200).json(new ApiResponse(true, "Session fetched", rows[0] || null))
+  })
+)
+
+
 
 export { assessmentRouter }
 export default assessmentRouter

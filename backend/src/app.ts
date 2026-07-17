@@ -14,7 +14,6 @@ import workingSolutionRoutes from "./modules/workingsolution.js";
 import { assessmentRouter } from "./modules/assessment.js";
 
 import { errorHandler } from "./middlewares/error.middlware.js"
-import anticheatRouter from "./modules/anticheat.js";
 
 dotenv.config();
 
@@ -143,7 +142,6 @@ app.post('/run', async (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/classrooms", classroomRoutes);
 app.use("/api/assessments", assessmentRouter);
-app.use("/api/assessments/:id", anticheatRouter);
 app.use("/api/problems", problemRoutes);
 app.use("/api/problems/:id/testcases", testcaseRoutes);
 app.use("/api/problems/:id/validate", workingSolutionRoutes);

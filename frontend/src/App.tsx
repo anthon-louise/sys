@@ -17,7 +17,6 @@ import ProblemDetails from "./pages/problem-details"
 import CreateTestCases from "./pages/create-test-cases"
 import VerifyProblem from "./pages/verify-problem"
 import AssessmentDetails from "./pages/assessment-details"
-import AssessmentFocusLogs from "./pages/assessment-focus-logs"
 import StudentAssessmentDetails from "./pages/student-assessment-details"
 import StudentAssessmentTake from "./pages/student-assessment-take"
 import StudentAssessmentResults from "./pages/student-assessment-results"
@@ -84,14 +83,6 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={["instructor"]}>
                   <AssessmentDetails />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/instructor/assessment/:id/focus-logs"
-              element={
-                <ProtectedRoute allowedRoles={["instructor"]}>
-                  <AssessmentFocusLogs />
                 </ProtectedRoute>
               }
             />

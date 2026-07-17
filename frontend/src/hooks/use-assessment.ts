@@ -12,6 +12,9 @@ interface Assessment {
   timeLimitMinutes: number | null
   createdAt: Date
   updatedAt: Date
+  isPublished: boolean
+  opensAt: Date | null
+  closesAt: Date | null
 }
 
 interface AssessmentProblem {
@@ -84,7 +87,9 @@ export function useCreateAssessment() {
       assessmentType: string, 
       academicTerm: string, 
       timeLimitMinutes?: number, 
-      problemIds?: number[] 
+      problemIds?: number[],
+      opensAt?: string | null,
+      closesAt?: string | null
     }) => {
       // First create the assessment
       const res = await api.post("/assessments", {
@@ -93,7 +98,9 @@ export function useCreateAssessment() {
         description: data.description,
         assessmentType: data.assessmentType,
         academicTerm: data.academicTerm,
-        timeLimitMinutes: data.timeLimitMinutes
+        timeLimitMinutes: data.timeLimitMinutes,
+        opensAt: data.opensAt,
+        closesAt: data.closesAt
       })
       const assessment = res.data.data
       
@@ -121,6 +128,56 @@ export function useAttachProblemToAssessment(assessmentId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["assessment", assessmentId] })
+    }
+  })
+}
+
+export function useUpdateAssessment(assessmentId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: {
+      title?: string
+      description?: string
+      assessmentType?: string
+      academicTerm?: string
+      timeLimitMinutes?: number | null,
+      opensAt?: string | null,
+      closesAt?: string | null
+    }) => {
+      const res = await api.put(`/assessments/${assessmentId}`, data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["assessment", assessmentId] })
+    }
+  })
+}
+
+export function useDeleteAssessment() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (assessmentId: string) => {
+      await api.delete(`/assessments/${assessmentId}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["classroomAssessments"] })
+    }
+  })
+}
+
+export function usePublishAssessment(assessmentId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.put(`/assessments/${assessmentId}/publish`)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["assessment", assessmentId] })
+      queryClient.invalidateQueries({ queryKey: ["classroomAssessments"] })
     }
   })
 }
@@ -171,34 +228,22 @@ export function useProblemTestCases(problemId: number | undefined) {
   })
 }
 
-// Focus loss hooks
-export function useReportFocusLoss(assessmentId: string | undefined) {
+export function useStartSession(assessmentId: string | undefined) {
   return useMutation({
-    mutationFn: async (data: { event_type: string, duration_seconds: number }) => {
-      const res = await api.post(`/assessments/${assessmentId}/focus-loss`, data)
+    mutationFn: async () => {
+      const res = await api.post(`/assessments/student/assessments/${assessmentId}/start-session`)
       return res.data.data
     }
   })
 }
 
-export function useFocusLossSummary(assessmentId: string | undefined) {
+export function useAssessmentSession(assessmentId: string | undefined) {
   return useQuery({
-    queryKey: ["focusLossSummary", assessmentId],
+    queryKey: ["assessmentSession", assessmentId],
     queryFn: async () => {
-      const res = await api.get(`/assessments/${assessmentId}/focus-loss/summary`)
+      const res = await api.get(`/assessments/student/assessments/${assessmentId}/session`)
       return res.data.data
     },
     enabled: !!assessmentId
-  })
-}
-
-export function useStudentFocusLog(assessmentId: string | undefined, studentId: number | undefined) {
-  return useQuery({
-    queryKey: ["studentFocusLog", assessmentId, studentId],
-    queryFn: async () => {
-      const res = await api.get(`/assessments/${assessmentId}/focus-loss/students/${studentId}`)
-      return res.data.data
-    },
-    enabled: !!assessmentId && !!studentId
   })
 }

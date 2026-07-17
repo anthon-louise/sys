@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { useStudentAssessment, useTestCode, useSubmitAssessment, useProblemTestCases, useReportFocusLoss } from "../hooks/use-assessment"
+import { useStudentAssessment, useTestCode, useSubmitAssessment, useProblemTestCases, useStartSession, useAssessmentSession } from "../hooks/use-assessment"
 
 export default function StudentAssessmentTake() {
   const { id } = useParams<{ id: string }>()
@@ -9,7 +9,8 @@ export default function StudentAssessmentTake() {
   const { data: assessment, isLoading: assessmentLoading } = useStudentAssessment(id)
   const testCodeMutation = useTestCode()
   const submitAssessmentMutation = useSubmitAssessment(id)
-  const reportFocusLoss = useReportFocusLoss(id)
+  const startSessionMutation = useStartSession(id)
+  const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useAssessmentSession(id)
 
   const [currentProblemIndex, setCurrentProblemIndex] = useState(0)
   const [codeByProblemId, setCodeByProblemId] = useState<Record<number, string>>({})
@@ -18,32 +19,32 @@ export default function StudentAssessmentTake() {
   const [timer, setTimer] = useState(0)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [customInput, setCustomInput] = useState("")
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const lastFocusTimeRef = useRef<number>(Date.now())
+  const timerRef = useRef<number | null>(null)
 
-  // Initialize code with starter code and localStorage
+  // Initialize code with starter code only (no localStorage, no server snapshot)
   useEffect(() => {
-    if (assessment?.problems && assessment.assessmentId) {
-      const codeStorageKey = `assessment_code_${assessment.assessmentId}`
-      const savedCodeStr = localStorage.getItem(codeStorageKey)
-      const savedCode = savedCodeStr ? JSON.parse(savedCodeStr) : {}
-      
+    if (assessment?.problems) {
       const initialCode: Record<number, string> = {}
       assessment.problems.forEach(p => {
-        // Use saved code if it exists, otherwise use starter code
-        initialCode[p.problemId] = savedCode[p.problemId] !== undefined ? savedCode[p.problemId] : (p.starterCode || "")
+        initialCode[p.problemId] = p.starterCode || ""
       })
       setCodeByProblemId(initialCode)
     }
   }, [assessment])
 
-  // Save code to localStorage whenever it changes
+  // Start session when component mounts if not already started
   useEffect(() => {
-    if (assessment?.assessmentId) {
-      const codeStorageKey = `assessment_code_${assessment.assessmentId}`
-      localStorage.setItem(codeStorageKey, JSON.stringify(codeByProblemId))
+    if (assessment?.assessmentId && !session && !startSessionMutation.isPending) {
+      startSessionMutation.mutate()
     }
-  }, [codeByProblemId, assessment?.assessmentId])
+  }, [assessment, session, startSessionMutation])
+
+  // Refetch session when startSessionMutation succeeds
+  useEffect(() => {
+    if (startSessionMutation.isSuccess) {
+      refetchSession()
+    }
+  }, [startSessionMutation.isSuccess, refetchSession])
 
   const handleSubmit = useCallback(async () => {
     if (!assessment?.problems || !assessment.assessmentId) return
@@ -54,99 +55,71 @@ export default function StudentAssessmentTake() {
     try {
       await submitAssessmentMutation.mutateAsync(problemSolutions)
       toast.success("Assessment submitted successfully!")
-      
-      // Clear localStorage on successful submit
-      const codeStorageKey = `assessment_code_${assessment.assessmentId}`
-      const timerStorageKey = `assessment_timer_${assessment.assessmentId}`
-      localStorage.removeItem(codeStorageKey)
-      localStorage.removeItem(timerStorageKey)
-      
       navigate(`/student/assessment/${id}/results`)
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Submit failed")
     }
   }, [assessment, codeByProblemId, navigate, id, submitAssessmentMutation])
 
-  // Focus loss tracking
+  // Pagehide handler using fetch with keepalive for best-effort submit
   useEffect(() => {
-    if (!assessment?.assessmentId) return
+    const handlePageHide = async () => {
+      if (!assessment?.assessmentId || !assessment.problems || session?.submittedAt) return
+      const problemSolutions = assessment.problems.map(p => ({
+        problemId: p.problemId,
+        sourceCode: codeByProblemId[p.problemId] || ""
+      }))
 
-    const handleBlur = () => {
-      lastFocusTimeRef.current = Date.now()
+      // Use fetch with keepalive to allow custom headers (Authorization)
+      await fetch(`${import.meta.env.VITE_API_URL}/assessments/student/assessments/${id}/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ problemSolutions }),
+        keepalive: true
+      })
     }
 
-    const handleFocus = () => {
-      const durationSeconds = Math.floor((Date.now() - lastFocusTimeRef.current) / 1000)
-      if (durationSeconds > 0) {
-        reportFocusLoss.mutate({ event_type: "blur", duration_seconds: durationSeconds })
-      }
-      lastFocusTimeRef.current = Date.now()
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        lastFocusTimeRef.current = Date.now()
-      } else {
-        const durationSeconds = Math.floor((Date.now() - lastFocusTimeRef.current) / 1000)
-        if (durationSeconds > 0) {
-          reportFocusLoss.mutate({ event_type: "visibilitychange", duration_seconds: durationSeconds })
-        }
-        lastFocusTimeRef.current = Date.now()
-      }
-    }
-
-    window.addEventListener("blur", handleBlur)
-    window.addEventListener("focus", handleFocus)
-    document.addEventListener("visibilitychange", handleVisibilityChange)
-
+    window.addEventListener("pagehide", handlePageHide)
     return () => {
-      window.removeEventListener("blur", handleBlur)
-      window.removeEventListener("focus", handleFocus)
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("pagehide", handlePageHide)
     }
-  }, [assessment?.assessmentId, reportFocusLoss])
+  }, [assessment, codeByProblemId, id, session])
 
-  // Timer setup
+  // Timer setup and assessment locking
   useEffect(() => {
-    if (assessment?.timeLimitMinutes && assessment.assessmentId) {
-      const storageKey = `assessment_timer_${assessment.assessmentId}`
-      const savedData = localStorage.getItem(storageKey)
-      
-      if (savedData) {
-        const { startTime, totalSeconds } = JSON.parse(savedData)
-        const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000)
-        const remaining = totalSeconds - elapsedSeconds
-        if (remaining > 0) {
-          setTimer(remaining)
-        } else {
+    if (sessionLoading || assessmentLoading) return
+
+    // If already submitted or past endsAt: redirect to results/locked
+    if (session?.submittedAt || (session?.endsAt && new Date(session.endsAt) < new Date())) {
+      navigate(`/student/assessment/${id}/results`)
+      return
+    }
+
+    if (session?.endsAt) {
+      const updateTimer = () => {
+        const now = Date.now()
+        const endsAt = new Date(session.endsAt).getTime()
+        const remainingSeconds = Math.max(0, Math.floor((endsAt - now) / 1000))
+
+        setTimer(remainingSeconds)
+
+        if (remainingSeconds <= 0) {
+          // Auto-submit when timer hits zero
           handleSubmit()
-          return
         }
-      } else {
-        const totalSeconds = assessment.timeLimitMinutes * 60
-        setTimer(totalSeconds)
-        localStorage.setItem(storageKey, JSON.stringify({
-          startTime: Date.now(),
-          totalSeconds
-        }))
       }
 
-      timerRef.current = setInterval(() => {
-        setTimer(t => {
-          if (t <= 1) {
-            // Auto submit when time's up
-            handleSubmit()
-            return 0
-          }
-          return t - 1
-        })
-      }, 1000)
+      updateTimer()
+      timerRef.current = window.setInterval(updateTimer, 1000)
     }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [assessment, handleSubmit])
+  }, [session, assessmentLoading, sessionLoading, handleSubmit, navigate, id])
 
   const currentProblem = assessment?.problems?.[currentProblemIndex]
   const currentCode = currentProblem ? codeByProblemId[currentProblem.problemId] || "" : ""
@@ -233,7 +206,7 @@ export default function StudentAssessmentTake() {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
   }
 
-  if (assessmentLoading) {
+  if (assessmentLoading || sessionLoading) {
     return <div style={{ maxWidth: "1400px", margin: "2rem auto", padding: "0 1rem" }}><p>Loading assessment...</p></div>
   }
   if (!assessment) {
@@ -260,7 +233,7 @@ export default function StudentAssessmentTake() {
             {formatTime(timer)}
           </div>
         )}
-        <button 
+        <button
           onClick={confirmSubmit}
           style={{
             padding: "0.75rem 1.5rem",
@@ -292,12 +265,12 @@ export default function StudentAssessmentTake() {
                 <div style={{ marginTop: "1.5rem" }}>
                   <h4 style={{ margin: "0 0 0.75rem 0" }}>Test Cases</h4>
                   {testCases.map((tc: any, idx: number) => (
-                    <div 
-                      key={tc.testCaseId} 
-                      style={{ 
-                        border: "1px solid #ddd", 
-                        borderRadius: "6px", 
-                        padding: "0.75rem", 
+                    <div
+                      key={tc.testCaseId}
+                      style={{
+                        border: "1px solid #ddd",
+                        borderRadius: "6px",
+                        padding: "0.75rem",
                         marginBottom: "0.5rem",
                         backgroundColor: testResults?.find((r: any) => r.testCaseId === tc.testCaseId)?.passed ? "#d4edda" : "#fff"
                       }}
@@ -346,24 +319,24 @@ export default function StudentAssessmentTake() {
               )}
             </div>
           )}
-          <div style={{ 
-            marginTop: "1.5rem", 
-            display: "flex", 
+          <div style={{
+            marginTop: "1.5rem",
+            display: "flex",
             gap: "0.5rem",
             position: "sticky",
             bottom: 0,
             backgroundColor: "#fff",
             paddingTop: "1rem"
           }}>
-            <button 
-              onClick={prevProblem} 
+            <button
+              onClick={prevProblem}
               disabled={currentProblemIndex === 0}
               style={{ flex: 1, padding: "0.5rem", cursor: currentProblemIndex === 0 ? "not-allowed" : "pointer" }}
             >
               Previous
             </button>
-            <button 
-              onClick={nextProblem} 
+            <button
+              onClick={nextProblem}
               disabled={currentProblemIndex === (assessment.problems?.length || 0) - 1}
               style={{ flex: 1, padding: "0.5rem", cursor: currentProblemIndex === (assessment.problems?.length || 0) - 1 ? "not-allowed" : "pointer" }}
             >
@@ -374,16 +347,16 @@ export default function StudentAssessmentTake() {
 
         {/* Center Panel - Code Editor */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          <div style={{ 
-            display: "flex", 
-            gap: "0.5rem", 
-            padding: "0.75rem", 
+          <div style={{
+            display: "flex",
+            gap: "0.5rem",
+            padding: "0.75rem",
             borderBottom: "1px solid #ccc",
             backgroundColor: "#f5f5f5"
           }}>
             <button onClick={handleRun} style={{ padding: "0.5rem 1rem", cursor: "pointer" }}>Run</button>
-            <button 
-              onClick={handleTest} 
+            <button
+              onClick={handleTest}
               disabled={testCodeMutation.isPending}
               style={{ padding: "0.5rem 1rem", cursor: testCodeMutation.isPending ? "not-allowed" : "pointer" }}
             >
@@ -412,10 +385,10 @@ export default function StudentAssessmentTake() {
 
         {/* Right Panel - Terminal */}
         <div style={{ width: "25%", borderLeft: "1px solid #ccc", display: "flex", flexDirection: "column" }}>
-          <div style={{ 
-            padding: "0.75rem", 
-            borderBottom: "1px solid #ccc", 
-            backgroundColor: "#333", 
+          <div style={{
+            padding: "0.75rem",
+            borderBottom: "1px solid #ccc",
+            backgroundColor: "#333",
             color: "#fff"
           }}>
             Custom Input
@@ -436,19 +409,19 @@ export default function StudentAssessmentTake() {
             }}
             placeholder="Type your custom input here..."
           />
-          <div style={{ 
-            padding: "0.75rem", 
-            borderBottom: "1px solid #ccc", 
-            backgroundColor: "#333", 
+          <div style={{
+            padding: "0.75rem",
+            borderBottom: "1px solid #ccc",
+            backgroundColor: "#333",
             color: "#fff"
           }}>
             Output
           </div>
-          <div style={{ 
-            flex: 1, 
-            padding: "1rem", 
-            backgroundColor: "#1e1e1e", 
-            color: "#d4d4d4", 
+          <div style={{
+            flex: 1,
+            padding: "1rem",
+            backgroundColor: "#1e1e1e",
+            color: "#d4d4d4",
             fontFamily: "monospace",
             overflowY: "auto",
             whiteSpace: "pre-wrap"

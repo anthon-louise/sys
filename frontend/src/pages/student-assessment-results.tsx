@@ -1,23 +1,26 @@
 import { Link, useParams, useNavigate } from "react-router-dom"
 import { useEffect } from "react"
-import { useStudentAssessment, useStudentSubmission } from "../hooks/use-assessment"
+import { useStudentAssessment, useStudentSubmission, useAssessmentSession } from "../hooks/use-assessment"
 
 export default function StudentAssessmentResults() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: assessment } = useStudentAssessment(id)
-  const { data: submission, isLoading } = useStudentSubmission(id)
+  const { data: submission, isLoading: submissionLoading } = useStudentSubmission(id)
+  const { data: session, isLoading: sessionLoading } = useAssessmentSession(id)
+
+  const isLoading = submissionLoading || sessionLoading
 
   useEffect(() => {
-    if (!isLoading && !submission) {
+    if (!isLoading && !submission && !session?.endsAt) {
       navigate(`/student/assessment/${id}`)
     }
-  }, [submission, isLoading, id, navigate])
+  }, [submission, session, isLoading, id, navigate])
 
   if (isLoading) {
     return <div style={{ maxWidth: "1000px", margin: "2rem auto", padding: "0 1rem" }}><p>Loading results...</p></div>
   }
-  if (!submission) {
+  if (!submission && (!session?.endsAt || new Date(session.endsAt) > new Date())) {
     return null
   }
 
@@ -29,16 +32,25 @@ export default function StudentAssessmentResults() {
       >
         ← Back
       </Link>
-      <div style={{ border: "1px solid #ccc", borderRadius: "8px", padding: "1.5rem", background: "#fff", marginBottom: "2rem" }}>
-        <div style={{ textAlign: "center" }}>
-          <h1 style={{ margin: "0 0 0.5rem 0" }}>Assessment Complete!</h1>
-          <p style={{ margin: 0, fontSize: "3rem", fontWeight: "bold", color: Number(submission?.overallScore) >= 80 ? "#28a745" : Number(submission?.overallScore) >= 50 ? "#ffc107" : "#dc3545" }}>
-            {Number(submission?.overallScore || 0).toFixed(0)}%
-          </p>
+      {submission ? (
+        <div style={{ border: "1px solid #ccc", borderRadius: "8px", padding: "1.5rem", background: "#fff", marginBottom: "2rem" }}>
+          <div style={{ textAlign: "center" }}>
+            <h1 style={{ margin: "0 0 0.5rem 0" }}>Assessment Complete!</h1>
+            <p style={{ margin: 0, fontSize: "3rem", fontWeight: "bold", color: Number(submission?.overallScore) >= 80 ? "#28a745" : Number(submission?.overallScore) >= 50 ? "#ffc107" : "#dc3545" }}>
+              {Number(submission?.overallScore || 0).toFixed(0)}%
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ border: "1px solid #ccc", borderRadius: "8px", padding: "1.5rem", background: "#fff", marginBottom: "2rem" }}>
+          <div style={{ textAlign: "center" }}>
+            <h1 style={{ margin: "0 0 0.5rem 0" }}>Time's Up!</h1>
+            <p style={{ margin: 0, fontSize: "1.2rem", color: "#666" }}>No submission was made before the time expired.</p>
+          </div>
+        </div>
+      )}
 
-      {assessment?.problems?.map((problem, idx) => {
+      {submission && assessment?.problems?.map((problem, idx) => {
         const sub = submission?.submissions?.find((s: any) => s.problemId === problem.problemId)
         return (
           <div 

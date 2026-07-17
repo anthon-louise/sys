@@ -77,3 +77,31 @@ export function useJoinClassroom() {
     },
   })
 }
+
+export function useUpdateClassroom(classroomId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: Partial<{ classroomName: string; schoolYear: string; isActive: boolean }>) => {
+      const res = await api.put(`/classrooms/${classroomId}`, data)
+      return res.data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["classrooms"] })
+      queryClient.invalidateQueries({ queryKey: ["classroom", classroomId] })
+    },
+  })
+}
+
+export function useDeleteClassroom() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (classroomId: string) => {
+      await api.delete(`/classrooms/${classroomId}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["classrooms"] })
+    },
+  })
+}
