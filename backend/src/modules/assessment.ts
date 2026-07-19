@@ -552,6 +552,40 @@ assessmentRouter.get(
   })
 )
 
+// GET /api/student/assessments/:id/status (student) - returns schedule/publish info without access gate
+assessmentRouter.get(
+  "/student/assessments/:id/status",
+  protect,
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const id = req.params.id as string
+    const userId = req.user!.userId
+
+    const assessmentId = parseInt(id, 10)
+    if (Number.isNaN(assessmentId)) {
+      throw new ApiError("Invalid assessment id", 400)
+    }
+
+    // Only check enrollment, not publish/schedule
+    const { rows } = await db.query(
+      `SELECT
+         a.assessment_id AS "assessmentId",
+         a.title,
+         a.is_published  AS "isPublished",
+         a.opens_at      AS "opensAt",
+         a.closes_at     AS "closesAt"
+       FROM assessments a
+       JOIN classroom_students cs ON a.classroom_id = cs.classroom_id
+       WHERE a.assessment_id = $1 AND cs.student_id = $2`,
+      [assessmentId, userId]
+    )
+    if (!rows[0]) {
+      throw new ApiError("Assessment not found", 404)
+    }
+
+    res.status(200).json(new ApiResponse(true, "Assessment status fetched", rows[0]))
+  })
+)
+
 // GET /api/student/assessments/:id (student)
 assessmentRouter.get(
   "/student/assessments/:id",

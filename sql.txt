@@ -184,8 +184,8 @@ ADD COLUMN is_published BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Schedule Start Time (NULL means available immediately)
 ALTER TABLE assessments 
-ADD COLUMN opens_at TIMESTAMP;
+ADD COLUMN opens_at TIMESTAMPTZ;
 
 -- Schedule End Time / Deadline (NULL means no deadline)
 ALTER TABLE assessments 
-ADD COLUMN closes_at TIMESTAMP;
+ADD COLUMN closes_at TIMESTAMPTZ;

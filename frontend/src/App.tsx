@@ -8,6 +8,7 @@ import ProtectedRoute from "./components/protected-route"
 
 import LoginPage from "./pages/login-page"
 import RegisterPage from "./pages/register-page"
+import HeroPage from "./pages/hero-page"
 import StudentDashboard from "./pages/student-dashboard"
 import InstructorDashboard from "./pages/instructor-dashboard"
 import ClassroomPage from "./pages/classroom-page"
@@ -28,6 +29,7 @@ export default function App() {
         <BrowserRouter>
           <Toaster />
           <Routes>
+            <Route path="/" element={<HeroPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route
@@ -126,7 +128,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

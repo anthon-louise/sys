@@ -72,9 +72,30 @@ export function useStudentAssessment(assessmentId: string | undefined) {
       const res = await api.get(`/assessments/student/assessments/${assessmentId}`)
       return res.data.data
     },
-    enabled: !!assessmentId
+    enabled: !!assessmentId,
+    refetchInterval: 30_000, // poll every 30s so publish/unpublish reflects in real time
+    retry: false            // don't retry on 404 (assessment gated/closed)
   })
 }
+
+export function useStudentAssessmentStatus(assessmentId: string | undefined) {
+  return useQuery({
+    queryKey: ["studentAssessmentStatus", assessmentId],
+    queryFn: async (): Promise<{
+      assessmentId: number
+      title: string
+      isPublished: boolean
+      opensAt: string | null
+      closesAt: string | null
+    }> => {
+      const res = await api.get(`/assessments/student/assessments/${assessmentId}/status`)
+      return res.data.data
+    },
+    enabled: !!assessmentId,
+    refetchInterval: 30_000 // poll every 30s for real-time publish changes
+  })
+}
+
 
 export function useCreateAssessment() {
   const queryClient = useQueryClient()

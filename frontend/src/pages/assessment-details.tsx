@@ -78,17 +78,13 @@ export default function AssessmentDetails() {
     }
   }, [assessment, resetUpdateForm])
 
-  // Helper to convert datetime-local string (local time) to ISO string (UTC)
+  // Helper to convert datetime-local string (Philippine time, UTC+8) to ISO string with +08:00 offset
   const toISOString = (dateTimeLocal: string | null | undefined): string | null => {
     if (!dateTimeLocal) return null
-    // Create a Date object from the local datetime string
-    const date = new Date(dateTimeLocal)
-    // Check if date is valid
-    if (isNaN(date.getTime())) {
-      return null
-    }
-    // Return ISO string
-    return date.toISOString()
+    // dateTimeLocal is like "2026-07-18T10:00" — already in PHT (UTC+8)
+    // Append seconds + PHT offset so the backend receives the correct time
+    if (isNaN(new Date(dateTimeLocal).getTime())) return null
+    return `${dateTimeLocal}:00+08:00`
   }
 
   const handleUpdate = async (data: UpdateAssessmentForm) => {

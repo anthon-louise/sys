@@ -19,6 +19,7 @@ export default function StudentAssessmentTake() {
   const [timer, setTimer] = useState(0)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [customInput, setCustomInput] = useState("")
+  const [deadlineLabel, setDeadlineLabel] = useState("")
   const timerRef = useRef<number | null>(null)
 
   // Initialize code with starter code only (no localStorage, no server snapshot)
@@ -121,6 +122,22 @@ export default function StudentAssessmentTake() {
     }
   }, [session, assessmentLoading, sessionLoading, handleSubmit, navigate, id])
 
+  // closes_at wall-clock deadline — auto-submit even if no time-limit timer
+  useEffect(() => {
+    if (!assessment?.closesAt || session?.submittedAt) return
+
+    const checkDeadline = () => {
+      if (new Date(assessment.closesAt!) <= new Date()) {
+        handleSubmit()
+      }
+    }
+
+    checkDeadline() // check immediately on mount
+    const deadlineInterval = window.setInterval(checkDeadline, 15_000) // every 15s
+    return () => clearInterval(deadlineInterval)
+  }, [assessment?.closesAt, session?.submittedAt, handleSubmit])
+
+
   const currentProblem = assessment?.problems?.[currentProblemIndex]
   const currentCode = currentProblem ? codeByProblemId[currentProblem.problemId] || "" : ""
   const { data: testCases } = useProblemTestCases(currentProblem?.problemId)
@@ -206,6 +223,21 @@ export default function StudentAssessmentTake() {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
   }
 
+  // Update closes_at label every minute
+  useEffect(() => {
+    if (!assessment?.closesAt) return
+    const update = () => {
+      const diff = new Date(assessment.closesAt!).getTime() - Date.now()
+      if (diff <= 0) { setDeadlineLabel("Closed"); return }
+      const h = Math.floor(diff / 3_600_000)
+      const m = Math.floor((diff % 3_600_000) / 60_000)
+      setDeadlineLabel(h > 0 ? `${h}h ${m}m left` : `${m}m left`)
+    }
+    update()
+    const id = setInterval(update, 60_000)
+    return () => clearInterval(id)
+  }, [assessment?.closesAt])
+
   if (assessmentLoading || sessionLoading) {
     return <div style={{ maxWidth: "1400px", margin: "2rem auto", padding: "0 1rem" }}><p>Loading assessment...</p></div>
   }
@@ -224,15 +256,32 @@ export default function StudentAssessmentTake() {
         backgroundColor: "#fff"
       }}>
         <h2 style={{ margin: 0 }}>{assessment.title}</h2>
-        {assessment.timeLimitMinutes && (
-          <div style={{
-            fontSize: "1.5rem",
-            fontWeight: "bold",
-            color: timer < 60 ? "red" : "black"
-          }}>
-            {formatTime(timer)}
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          {/* Session timer (time-limit based) */}
+          {assessment.timeLimitMinutes && (
+            <div style={{
+              fontSize: "1.5rem",
+              fontWeight: "bold",
+              color: timer < 60 ? "red" : "black"
+            }}>
+              {formatTime(timer)}
+            </div>
+          )}
+          {/* Closes-at deadline badge (shown when no per-session timer, or as extra info) */}
+          {assessment.closesAt && !assessment.timeLimitMinutes && deadlineLabel && (
+            <div style={{
+              fontSize: "0.9rem",
+              fontWeight: 600,
+              padding: "0.3rem 0.75rem",
+              borderRadius: "999px",
+              backgroundColor: deadlineLabel === "Closed" ? "#dc3545" : "#fff3cd",
+              color: deadlineLabel === "Closed" ? "#fff" : "#856404",
+              border: "1px solid currentColor"
+            }}>
+              ⏰ Deadline: {deadlineLabel}
+            </div>
+          )}
+        </div>
         <button
           onClick={confirmSubmit}
           style={{
