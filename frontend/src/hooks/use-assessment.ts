@@ -16,6 +16,11 @@ interface Assessment {
   opensAt: Date | null
   closesAt: Date | null
   gradingPreset: string
+  structuralConstraints: {
+    required: string[]
+    forbidden: string[]
+    weight: number
+  } | null
 }
 
 interface AssessmentProblem {
@@ -112,7 +117,8 @@ export function useCreateAssessment() {
       problemIds?: number[],
       opensAt?: string | null,
       closesAt?: string | null,
-      gradingPreset?: string
+      gradingPreset?: string,
+      structuralConstraints?: { required: string[], forbidden: string[], weight: number } | null
     }) => {
       // First create the assessment
       const res = await api.post("/assessments", {
@@ -124,7 +130,8 @@ export function useCreateAssessment() {
         timeLimitMinutes: data.timeLimitMinutes,
         opensAt: data.opensAt,
         closesAt: data.closesAt,
-        gradingPreset: data.gradingPreset
+        gradingPreset: data.gradingPreset,
+        structuralConstraints: data.structuralConstraints
       })
       const assessment = res.data.data
       
@@ -168,7 +175,8 @@ export function useUpdateAssessment(assessmentId: string | undefined) {
       timeLimitMinutes?: number | null,
       opensAt?: string | null,
       closesAt?: string | null,
-      gradingPreset?: string
+      gradingPreset?: string,
+      structuralConstraints?: { required: string[], forbidden: string[], weight: number } | null
     }) => {
       const res = await api.put(`/assessments/${assessmentId}`, data)
       return res.data.data

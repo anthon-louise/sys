@@ -7,7 +7,7 @@ import { useClassroom, useClassroomStudents, useUpdateClassroom, useDeleteClassr
 import { useClassroomAssessments, useStudentClassroomAssessments, useCreateAssessment } from "../hooks/use-assessment"
 import { useProblems } from "../hooks/use-problem"
 import { useAuth } from "../context/auth-context"
-import { createAssessmentSchema, type CreateAssessmentForm } from "../schemas/assessment.schema"
+import { createAssessmentSchema, type CreateAssessmentForm, REQUIRED_CONSTRAINTS, FORBIDDEN_CONSTRAINTS, FORBIDDEN_REQUIRED_CONFLICT, REQUIRED_FORBIDDEN_CONFLICT } from "../schemas/assessment.schema"
 import { updateClassroomSchema, type UpdateClassroomForm } from "../schemas/classroom.schema"
 
 export default function ClassroomPage() {
@@ -27,6 +27,8 @@ export default function ClassroomPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
+  const [requiredConstraints, setRequiredConstraints] = useState<string[]>([])
+  const [forbiddenConstraints, setForbiddenConstraints] = useState<string[]>([])
 
   const { 
     register: updateRegister, 
@@ -102,11 +104,16 @@ export default function ClassroomPage() {
       const processedData = {
         ...data,
         opensAt: toISOString(data.opensAt),
-        closesAt: toISOString(data.closesAt)
+        closesAt: toISOString(data.closesAt),
+        structuralConstraints: (requiredConstraints.length > 0 || forbiddenConstraints.length > 0)
+          ? { required: requiredConstraints, forbidden: forbiddenConstraints, weight: 0 }
+          : null
       }
       await createAssessmentMutation.mutateAsync(processedData)
       toast.success("Assessment created successfully!")
       setIsCreateModalOpen(false)
+      setRequiredConstraints([])
+      setForbiddenConstraints([])
       reset()
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to create assessment")
@@ -286,10 +293,62 @@ export default function ClassroomPage() {
                   <option value="Correctness Only">Correctness Only — Test 100%, Time 0%</option>
                   <option value="Balanced">Balanced — Test 75%, Time Bonus 25%</option>
                   <option value="Speed Challenge">Speed Challenge — Test 50%, Time Bonus 50%</option>
+                  <option value="Structure + Tests">Structure + Tests — Test 50%, Constraints 50%</option>
+                  <option value="Mixed">Mixed — Test 50%, Constraints 25%, Time 25%</option>
+                  <option value="Structure Focus">Structure Focus — Test 30%, Constraints 70%</option>
                 </select>
                 <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.78rem", color: "#666" }}>
-                  💡 Note: Time bonus requires a time limit or closing deadline. If neither is set, test cases are automatically weighted at 100%.
+                  💡 Note: Time bonus requires a time limit or closing deadline. Structure presets only apply to Python problems.
                 </p>
+              </div>
+              {/* Structural Constraints */}
+              <div style={{ marginBottom: "1rem", border: "1px solid #e5e7eb", borderRadius: "6px", padding: "1rem" }}>
+                <label style={{ display: "block", marginBottom: "0.75rem", fontWeight: 600 }}>Structural Constraints (Python only)</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem 2rem" }}>
+                  <div>
+                    <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>Required Structures</p>
+                    {REQUIRED_CONSTRAINTS.map(c => (
+                      <label key={c.key} style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem", fontSize: "0.9rem", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={requiredConstraints.includes(c.key)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              const conflict = REQUIRED_FORBIDDEN_CONFLICT[c.key]
+                              if (conflict) setForbiddenConstraints(prev => prev.filter(k => k !== conflict))
+                              setRequiredConstraints(prev => [...prev, c.key])
+                            } else {
+                              setRequiredConstraints(prev => prev.filter(k => k !== c.key))
+                            }
+                          }}
+                        />
+                        {c.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div>
+                    <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>Forbidden Structures</p>
+                    {FORBIDDEN_CONSTRAINTS.map(c => (
+                      <label key={c.key} style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem", fontSize: "0.9rem", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={forbiddenConstraints.includes(c.key)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              // Auto-uncheck the conflicting required constraint
+                              const conflict = FORBIDDEN_REQUIRED_CONFLICT[c.key]
+                              if (conflict) setRequiredConstraints(prev => prev.filter(k => k !== conflict))
+                              setForbiddenConstraints(prev => [...prev, c.key])
+                            } else {
+                              setForbiddenConstraints(prev => prev.filter(k => k !== c.key))
+                            }
+                          }}
+                        />
+                        {c.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div style={{ marginBottom: "1rem" }}>
                 <label style={{ display: "block", marginBottom: "0.25rem" }}>Description (optional)</label>

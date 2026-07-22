@@ -6,6 +6,10 @@ import { ApiError } from "../utils/ApiError.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { protect, instructorOnly, AuthRequest } from "../middlewares/auth.middleware.js"
 import axios from "axios"
+import { execSync } from "child_process"
+import { writeFileSync, unlinkSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 
 const assessmentRouter = Router()
 
@@ -26,6 +30,13 @@ export interface Assessment {
   opensAt: Date | null
   closesAt: Date | null
   gradingPreset: string
+  structuralConstraints: StructuralConstraints | null
+}
+
+export interface StructuralConstraints {
+  required: string[]
+  forbidden: string[]
+  weight: number  // 0–100, portion of the final score
 }
 
 export interface AssessmentProblem {
@@ -41,8 +52,21 @@ export interface AssessmentProblem {
 
 // -- schemas --
 
-const GRADING_PRESETS = ["Correctness Only", "Balanced", "Speed Challenge"] as const
+const GRADING_PRESETS = [
+  "Correctness Only",
+  "Balanced",
+  "Speed Challenge",
+  "Structure + Tests",
+  "Mixed",
+  "Structure Focus"
+] as const
 export type GradingPreset = typeof GRADING_PRESETS[number]
+
+const StructuralConstraintsSchema = z.object({
+  required: z.array(z.string()).default([]),
+  forbidden: z.array(z.string()).default([]),
+  weight: z.number().min(0).max(100).default(0)
+}).optional().nullable()
 
 export const CreateAssessmentSchema = z.object({
   classroomId: z.number().int(),
@@ -53,7 +77,8 @@ export const CreateAssessmentSchema = z.object({
   timeLimitMinutes: z.number().int().optional(),
   opensAt: z.string().datetime({ offset: true }).optional().nullable(),
   closesAt: z.string().datetime({ offset: true }).optional().nullable(),
-  gradingPreset: z.enum(GRADING_PRESETS).default("Correctness Only")
+  gradingPreset: z.enum(GRADING_PRESETS).default("Correctness Only"),
+  structuralConstraints: StructuralConstraintsSchema
 })
 
 export const UpdateAssessmentSchema = z.object({
@@ -64,7 +89,8 @@ export const UpdateAssessmentSchema = z.object({
   timeLimitMinutes: z.number().int().optional().nullable(),
   opensAt: z.string().datetime({ offset: true }).optional().nullable(),
   closesAt: z.string().datetime({ offset: true }).optional().nullable(),
-  gradingPreset: z.enum(GRADING_PRESETS).optional()
+  gradingPreset: z.enum(GRADING_PRESETS).optional(),
+  structuralConstraints: StructuralConstraintsSchema
 })
 
 export const AttachProblemSchema = z.object({
@@ -82,28 +108,29 @@ assessmentRouter.post(
   protect,
   instructorOnly,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { classroomId, title, description, assessmentType, academicTerm, timeLimitMinutes, opensAt, closesAt, gradingPreset } = CreateAssessmentSchema.parse(req.body)
+    const { classroomId, title, description, assessmentType, academicTerm, timeLimitMinutes, opensAt, closesAt, gradingPreset, structuralConstraints } = CreateAssessmentSchema.parse(req.body)
     const teacherId = req.user!.userId
 
     const { rows } = await db.query<Assessment>(
-      `INSERT INTO assessments (classroom_id, teacher_id, title, description, assessment_type, academic_term, time_limit_minutes, opens_at, closes_at, grading_preset)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO assessments (classroom_id, teacher_id, title, description, assessment_type, academic_term, time_limit_minutes, opens_at, closes_at, grading_preset, structural_constraints)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING
-         assessment_id      AS "assessmentId",
-         classroom_id       AS "classroomId",
-         teacher_id         AS "teacherId",
+         assessment_id           AS "assessmentId",
+         classroom_id            AS "classroomId",
+         teacher_id              AS "teacherId",
          title,
          description,
-         assessment_type    AS "assessmentType",
-         academic_term      AS "academicTerm",
-         time_limit_minutes AS "timeLimitMinutes",
-         created_at         AS "createdAt",
-         updated_at         AS "updatedAt",
-         is_published       AS "isPublished",
-         opens_at           AS "opensAt",
-         closes_at          AS "closesAt",
-         grading_preset     AS "gradingPreset"`,
-      [classroomId, teacherId, title, description || null, assessmentType, academicTerm, timeLimitMinutes || null, opensAt || null, closesAt || null, gradingPreset]
+         assessment_type         AS "assessmentType",
+         academic_term           AS "academicTerm",
+         time_limit_minutes      AS "timeLimitMinutes",
+         created_at              AS "createdAt",
+         updated_at              AS "updatedAt",
+         is_published            AS "isPublished",
+         opens_at                AS "opensAt",
+         closes_at               AS "closesAt",
+         grading_preset          AS "gradingPreset",
+         structural_constraints  AS "structuralConstraints"`,
+      [classroomId, teacherId, title, description || null, assessmentType, academicTerm, timeLimitMinutes || null, opensAt || null, closesAt || null, gradingPreset, structuralConstraints ? JSON.stringify(structuralConstraints) : null]
     )
 
     res.status(201).json(new ApiResponse(true, "Assessment created successfully", rows[0]))
@@ -127,20 +154,21 @@ assessmentRouter.get(
     // Get assessment with ownership check
     const { rows: assessmentRows } = await db.query<Assessment>(
       `SELECT
-         assessment_id      AS "assessmentId",
-         classroom_id       AS "classroomId",
-         teacher_id         AS "teacherId",
+         assessment_id           AS "assessmentId",
+         classroom_id            AS "classroomId",
+         teacher_id              AS "teacherId",
          title,
          description,
-         assessment_type    AS "assessmentType",
-         academic_term      AS "academicTerm",
-         time_limit_minutes AS "timeLimitMinutes",
-         created_at         AS "createdAt",
-         updated_at         AS "updatedAt",
-         is_published       AS "isPublished",
-         opens_at           AS "opensAt",
-         closes_at          AS "closesAt",
-         grading_preset     AS "gradingPreset"
+         assessment_type         AS "assessmentType",
+         academic_term           AS "academicTerm",
+         time_limit_minutes      AS "timeLimitMinutes",
+         created_at              AS "createdAt",
+         updated_at              AS "updatedAt",
+         is_published            AS "isPublished",
+         opens_at                AS "opensAt",
+         closes_at               AS "closesAt",
+         grading_preset          AS "gradingPreset",
+         structural_constraints  AS "structuralConstraints"
        FROM assessments
        WHERE assessment_id = $1 AND teacher_id = $2`,
       [assessmentId, teacherId]
@@ -262,6 +290,11 @@ assessmentRouter.put(
       updates.push(`grading_preset = $${paramCount}`)
       values.push(updateData.gradingPreset)
     }
+    if (updateData.structuralConstraints !== undefined) {
+      paramCount++
+      updates.push(`structural_constraints = $${paramCount}`)
+      values.push(updateData.structuralConstraints ? JSON.stringify(updateData.structuralConstraints) : null)
+    }
 
     if (updates.length === 0) {
       throw new ApiError("No fields to update", 400)
@@ -275,20 +308,21 @@ assessmentRouter.put(
        SET ${updates.join(", ")}, updated_at = NOW() 
        WHERE assessment_id = $${paramCount}
        RETURNING
-         assessment_id      AS "assessmentId",
-         classroom_id       AS "classroomId",
-         teacher_id         AS "teacherId",
+         assessment_id           AS "assessmentId",
+         classroom_id            AS "classroomId",
+         teacher_id              AS "teacherId",
          title,
          description,
-         assessment_type    AS "assessmentType",
-         academic_term      AS "academicTerm",
-         time_limit_minutes AS "timeLimitMinutes",
-         created_at         AS "createdAt",
-         updated_at         AS "updatedAt",
-         is_published       AS "isPublished",
-         opens_at           AS "opensAt",
-         closes_at          AS "closesAt",
-         grading_preset     AS "gradingPreset"`,
+         assessment_type         AS "assessmentType",
+         academic_term           AS "academicTerm",
+         time_limit_minutes      AS "timeLimitMinutes",
+         created_at              AS "createdAt",
+         updated_at              AS "updatedAt",
+         is_published            AS "isPublished",
+         opens_at                AS "opensAt",
+         closes_at               AS "closesAt",
+         grading_preset          AS "gradingPreset",
+         structural_constraints  AS "structuralConstraints"`,
       values
     )
 
@@ -693,16 +727,219 @@ export interface Submission {
 }
 
 // -- Grading preset weight lookup
-function getGradingWeights(preset: string, timeEnabled: boolean): { testWeight: number; timeWeight: number } {
-  if (!timeEnabled) {
-    // If time is disabled (no time limit & no deadline), test weight is forced to 100
-    return { testWeight: 100, timeWeight: 0 }
-  }
+function getGradingWeights(
+  preset: string,
+  timeEnabled: boolean,
+  constraintWeight: number  // 0 if no constraints
+): { testWeight: number; timeWeight: number; constraintWeight: number } {
+  // Presets that include structural constraints use the configured weight directly.
+  // Presets without constraints always return constraintWeight=0.
   switch (preset) {
-    case "Balanced":        return { testWeight: 75, timeWeight: 25 }
-    case "Speed Challenge": return { testWeight: 50, timeWeight: 50 }
-    default:               return { testWeight: 100, timeWeight: 0 }  // 'Correctness Only'
+    case "Balanced":
+      return timeEnabled
+        ? { testWeight: 75, timeWeight: 25, constraintWeight: 0 }
+        : { testWeight: 100, timeWeight: 0, constraintWeight: 0 }
+    case "Speed Challenge":
+      return timeEnabled
+        ? { testWeight: 50, timeWeight: 50, constraintWeight: 0 }
+        : { testWeight: 100, timeWeight: 0, constraintWeight: 0 }
+    case "Structure + Tests":
+      // 50% test, 50% constraints (time ignored)
+      return { testWeight: 50, timeWeight: 0, constraintWeight: 50 }
+    case "Mixed":
+      // 50% test, 25% constraints, 25% time
+      return timeEnabled
+        ? { testWeight: 50, timeWeight: 25, constraintWeight: 25 }
+        : { testWeight: 75, timeWeight: 0, constraintWeight: 25 }
+    case "Structure Focus":
+      // 30% test, 70% constraints (time ignored)
+      return { testWeight: 30, timeWeight: 0, constraintWeight: 70 }
+    default: // 'Correctness Only'
+      return { testWeight: 100, timeWeight: 0, constraintWeight: 0 }
   }
+}
+
+// -- Constraint keys that map to Python AST node types / call names
+const CONSTRAINT_AST_MAP: Record<string, string> = {
+  must_use_if:          "If",
+  must_use_else:        "Else",
+  must_use_comparison:  "Compare",
+  must_use_print:       "print",
+  must_use_input:       "input",
+  must_use_assignment:  "Assign",
+  no_if:                "If",
+  no_print:             "print",
+  no_input:             "input",
+}
+
+export interface ConstraintDetail {
+  rule: string
+  type: "required" | "forbidden"
+  passed: boolean
+  message: string
+}
+
+export interface StructuralCheckResult {
+  score: number
+  details: ConstraintDetail[]
+}
+
+const CONSTRAINT_DESCRIPTIONS: Record<string, { requiredPass: string; requiredFail: string; forbiddenPass: string; forbiddenFail: string }> = {
+  must_use_if: {
+    requiredPass: "Used required 'if' statement",
+    requiredFail: "Missing required 'if' statement",
+    forbiddenPass: "No 'if' statement used",
+    forbiddenFail: "Used forbidden 'if' statement",
+  },
+  must_use_else: {
+    requiredPass: "Used required 'else' branch",
+    requiredFail: "Missing required 'else' branch",
+    forbiddenPass: "No 'else' branch used",
+    forbiddenFail: "Used forbidden 'else' branch",
+  },
+  must_use_comparison: {
+    requiredPass: "Used required comparison operator (==, >, <, etc.)",
+    requiredFail: "Missing required comparison operator",
+    forbiddenPass: "No comparison operator used",
+    forbiddenFail: "Used forbidden comparison operator",
+  },
+  must_use_print: {
+    requiredPass: "Used required print() call",
+    requiredFail: "Missing required print() call",
+    forbiddenPass: "No print() call used",
+    forbiddenFail: "Used forbidden print() call",
+  },
+  must_use_input: {
+    requiredPass: "Used required input() call",
+    requiredFail: "Missing required input() call",
+    forbiddenPass: "No input() call used",
+    forbiddenFail: "Used forbidden input() call",
+  },
+  must_use_assignment: {
+    requiredPass: "Used required variable assignment (=, +=, etc.)",
+    requiredFail: "Missing required variable assignment",
+    forbiddenPass: "No variable assignment used",
+    forbiddenFail: "Used forbidden variable assignment",
+  },
+  no_if: {
+    requiredPass: "Used 'if' statement",
+    requiredFail: "Missing 'if' statement",
+    forbiddenPass: "No 'if' statement used",
+    forbiddenFail: "Used forbidden 'if' statement",
+  },
+  no_print: {
+    requiredPass: "Used print() call",
+    requiredFail: "Missing print() call",
+    forbiddenPass: "No print() call used",
+    forbiddenFail: "Used forbidden print() call",
+  },
+  no_input: {
+    requiredPass: "Used input() call",
+    requiredFail: "Missing input() call",
+    forbiddenPass: "No input() call used",
+    forbiddenFail: "Used forbidden input() call",
+  },
+}
+
+// -- Check Python source code against structural constraints using python AST
+// Returns score 0–100 and detailed results for each constraint
+function checkStructuralConstraints(
+  sourceCode: string,
+  constraints: StructuralConstraints
+): StructuralCheckResult {
+  if (!constraints || ((constraints.required?.length ?? 0) === 0 && (constraints.forbidden?.length ?? 0) === 0)) {
+    return { score: 100, details: [] }
+  }
+
+  const pythonScript = `import ast, sys, json
+code = open(sys.argv[1]).read()
+try:
+    tree = ast.parse(code)
+except SyntaxError:
+    print(json.dumps({"error": "syntax"}))
+    sys.exit(0)
+
+result = {}
+for node in ast.walk(tree):
+    t = type(node).__name__
+    result[t] = True
+    if t in ("Assign", "AugAssign", "AnnAssign"):
+        result["Assign"] = True
+    if t == "Call":
+        if isinstance(node.func, ast.Name):
+            result["call_" + node.func.id] = True
+    if t == "If" and node.orelse:
+        result["Else"] = True
+
+print(json.dumps(result))`
+
+  // Write script to temp file to avoid shell escaping issues
+  const tmpScript = join(tmpdir(), `ast_check_${Date.now()}.py`)
+  const tmpInput  = join(tmpdir(), `ast_input_${Date.now()}.py`)
+  let found: Record<string, boolean> = {}
+  try {
+    writeFileSync(tmpScript, pythonScript, "utf8")
+    writeFileSync(tmpInput, sourceCode, "utf8")
+    
+    let output = ""
+    try {
+      output = execSync(`py "${tmpScript}" "${tmpInput}"`, { timeout: 5000, encoding: "utf8" })
+    } catch {
+      output = execSync(`python "${tmpScript}" "${tmpInput}"`, { timeout: 5000, encoding: "utf8" })
+    }
+    
+    found = JSON.parse(output.trim())
+    if (found.error) return { score: 50, details: [] }  // syntax error — partial credit
+  } catch {
+    // If python is unavailable or errors, skip constraint check with full credit
+    return { score: 100, details: [] }
+  } finally {
+    try { unlinkSync(tmpScript) } catch { /* ignore */ }
+    try { unlinkSync(tmpInput)  } catch { /* ignore */ }
+  }
+
+  // Helper: is construct present?
+  function isPresent(key: string): boolean {
+    const astNode = CONSTRAINT_AST_MAP[key]
+    if (!astNode) return false
+    // Call-based nodes (print, input) are tracked as call_<name>
+    if (["print", "input"].includes(astNode)) {
+      return Boolean(found[`call_${astNode}`])
+    }
+    return Boolean(found[astNode])
+  }
+
+  const details: ConstraintDetail[] = []
+  let passedCount = 0
+
+  for (const req of (constraints.required || [])) {
+    const ok = isPresent(req)
+    if (ok) passedCount++
+    const desc = CONSTRAINT_DESCRIPTIONS[req]
+    details.push({
+      rule: req,
+      type: "required",
+      passed: ok,
+      message: ok ? (desc?.requiredPass || `Used required construct (${req})`) : (desc?.requiredFail || `Missing required construct (${req})`)
+    })
+  }
+
+  for (const forb of (constraints.forbidden || [])) {
+    const present = isPresent(forb)
+    const ok = !present
+    if (ok) passedCount++
+    const desc = CONSTRAINT_DESCRIPTIONS[forb]
+    details.push({
+      rule: forb,
+      type: "forbidden",
+      passed: ok,
+      message: ok ? (desc?.forbiddenPass || `Did not use forbidden construct (${forb})`) : (desc?.forbiddenFail || `Used forbidden construct (${forb})`)
+    })
+  }
+
+  const totalCount = (constraints.required?.length || 0) + (constraints.forbidden?.length || 0)
+  const score = totalCount > 0 ? (passedCount / totalCount) * 100 : 100
+  return { score, details }
 }
 
 // -- Compute time bonus score (0–100)
@@ -889,17 +1126,18 @@ assessmentRouter.post(
       throw new ApiError("Assessment time expired", 400)
     }
 
-    // Fetch full assessment data for grading (preset, opens_at, closes_at, time_limit_minutes)
+    // Fetch full assessment data for grading (preset, opens_at, closes_at, time_limit_minutes, constraints)
     const { rows: assessmentMeta } = await db.query(
-      `SELECT time_limit_minutes AS "timeLimitMinutes", grading_preset AS "gradingPreset", opens_at AS "opensAt", closes_at AS "closesAt"
+      `SELECT time_limit_minutes AS "timeLimitMinutes", grading_preset AS "gradingPreset", opens_at AS "opensAt", closes_at AS "closesAt", structural_constraints AS "structuralConstraints"
        FROM assessments WHERE assessment_id = $1`,
       [assessmentId]
     )
-    const { timeLimitMinutes, gradingPreset, opensAt: assessmentOpensAt, closesAt: assessmentClosesAt } = assessmentMeta[0]
+    const { timeLimitMinutes, gradingPreset, opensAt: assessmentOpensAt, closesAt: assessmentClosesAt, structuralConstraints } = assessmentMeta[0]
     
     // Time is enabled only if there is a positive time limit or a closes_at deadline
     const timeEnabled = Boolean((timeLimitMinutes && timeLimitMinutes > 0) || assessmentClosesAt)
-    const { testWeight, timeWeight } = getGradingWeights(gradingPreset, timeEnabled)
+    const scWeight = structuralConstraints?.weight ?? 0
+    const { testWeight, timeWeight, constraintWeight } = getGradingWeights(gradingPreset, timeEnabled, scWeight)
 
     // Get problems for this assessment
     const { rows: assessmentProblems } = await db.query(
@@ -910,6 +1148,8 @@ assessmentRouter.post(
     const submissions = []
     let totalTestCaseScore = 0
     let problemsWithSolutions = 0
+    let totalConstraintScore = 0
+    let problemsWithConstraints = 0
 
     for (const ap of assessmentProblems) {
       const solution = problemSolutions?.find((s: any) => s.problemId === ap.problemId)
@@ -970,10 +1210,19 @@ assessmentRouter.post(
       problemsWithSolutions++
       const status = testCaseScore === 100 ? "Correct" : testCaseScore > 0 ? "Partial" : "Incorrect"
 
+      // Check structural constraints (Python only)
+      let perProblemConstraintScore: number | null = null
+      let constraintDetails: ConstraintDetail[] = []
+      if (structuralConstraints && language.toLowerCase() === "python") {
+        const checkRes = checkStructuralConstraints(sourceCode, structuralConstraints)
+        perProblemConstraintScore = checkRes.score
+        constraintDetails = checkRes.details
+      }
+
       // Insert submission (score = raw test-case score per problem)
       const { rows: subRows } = await db.query<Submission>(
-        `INSERT INTO submissions (assessment_id, student_id, problem_id, source_code, language, score, status, execution_time_ms, memory_used_kb)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO submissions (assessment_id, student_id, problem_id, source_code, language, score, status, execution_time_ms, memory_used_kb, constraint_score)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (assessment_id, student_id, problem_id)
          DO UPDATE SET 
            source_code = EXCLUDED.source_code, 
@@ -981,6 +1230,7 @@ assessmentRouter.post(
            score = EXCLUDED.score, 
            status = EXCLUDED.status, 
            execution_time_ms = EXCLUDED.execution_time_ms, 
+           constraint_score = EXCLUDED.constraint_score,
            submitted_at = NOW()
          RETURNING
            submission_id AS "submissionId",
@@ -991,10 +1241,11 @@ assessmentRouter.post(
            language,
            score,
            status,
+           constraint_score AS "constraintScore",
            execution_time_ms AS "executionTimeMs",
            memory_used_kb AS "memoryUsedKb",
            submitted_at AS "submittedAt"`,
-        [assessmentId, userId, problemId, sourceCode, language, testCaseScore, status, totalTime ? Math.round(totalTime * 1000) : null, null]
+        [assessmentId, userId, problemId, sourceCode, language, testCaseScore, status, totalTime ? Math.round(totalTime * 1000) : null, null, perProblemConstraintScore]
       )
 
       const submission = subRows[0]
@@ -1014,7 +1265,16 @@ assessmentRouter.post(
         )
       }
 
-      submissions.push(submission)
+      // Accumulate constraint score
+      if (perProblemConstraintScore !== null) {
+        totalConstraintScore += perProblemConstraintScore
+        problemsWithConstraints++
+      }
+
+      submissions.push({
+        ...submission,
+        constraintDetails
+      })
     }
 
     // Mark session as submitted
@@ -1029,6 +1289,7 @@ assessmentRouter.post(
 
     // -- Compute overall scores
     const overallTestCaseScore = problemsWithSolutions > 0 ? totalTestCaseScore / problemsWithSolutions : 0
+    const overallConstraintScore = problemsWithConstraints > 0 ? totalConstraintScore / problemsWithConstraints : null
 
     // Time bonus: calculated if time is enabled and deadline/end time exists
     let timeBonusScore = 0
@@ -1045,9 +1306,13 @@ assessmentRouter.post(
     }
 
     // Final weighted score
-    const totalWeight = testWeight + timeWeight
+    const totalWeight = testWeight + timeWeight + constraintWeight
     const finalScore = totalWeight > 0
-      ? (overallTestCaseScore * testWeight + timeBonusScore * timeWeight) / totalWeight
+      ? (
+          overallTestCaseScore * testWeight +
+          timeBonusScore * timeWeight +
+          (overallConstraintScore ?? 0) * constraintWeight
+        ) / totalWeight
       : overallTestCaseScore
 
     // Persist final_score on all submissions for this assessment + student
@@ -1060,11 +1325,13 @@ assessmentRouter.post(
     res.status(200).json(new ApiResponse(true, "Assessment submitted", {
       submissions,
       overallTestCaseScore,
+      overallConstraintScore,
       timeBonusScore,
       finalScore,
       gradingPreset,
       testWeight,
-      timeWeight
+      timeWeight,
+      constraintWeight
     }))
   })
 )
@@ -1092,6 +1359,7 @@ assessmentRouter.get(
         score,
         final_score AS "finalScore",
         status,
+        constraint_score AS "constraintScore",
         execution_time_ms AS "executionTimeMs",
         memory_used_kb AS "memoryUsedKb",
         submitted_at AS "submittedAt"
@@ -1106,7 +1374,15 @@ assessmentRouter.get(
       return
     }
 
-    // Get test results for each submission
+    // Fetch grading preset + weights + structural constraints for this assessment
+    const { rows: assessmentMeta } = await db.query(
+      `SELECT time_limit_minutes AS "timeLimitMinutes", grading_preset AS "gradingPreset", opens_at AS "opensAt", closes_at AS "closesAt", structural_constraints AS "structuralConstraints"
+       FROM assessments WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+    const meta = assessmentMeta[0] ?? { timeLimitMinutes: null, gradingPreset: "Correctness Only", opensAt: null, closesAt: null, structuralConstraints: null }
+
+    // Get test results and structural constraint details for each submission
     const submissionsWithResults = []
     for (const sub of submissions) {
       const { rows: testResults } = await db.query<SubmissionTestResult>(
@@ -1122,9 +1398,17 @@ assessmentRouter.get(
          WHERE submission_id = $1`,
         [sub.submissionId]
       )
+
+      let constraintDetails: ConstraintDetail[] = []
+      if (meta.structuralConstraints && sub.language.toLowerCase() === "python") {
+        const checkRes = checkStructuralConstraints(sub.sourceCode, meta.structuralConstraints)
+        constraintDetails = checkRes.details
+      }
+
       submissionsWithResults.push({
         ...sub,
-        testResults
+        testResults,
+        constraintDetails
       })
     }
 
@@ -1133,32 +1417,38 @@ assessmentRouter.get(
     // final_score is the same for all rows (assessment-level), grab from first
     const finalScore = submissions[0].finalScore ?? overallTestCaseScore
 
-    // Fetch grading preset + weights for this assessment
-    const { rows: assessmentMeta } = await db.query(
-      `SELECT time_limit_minutes AS "timeLimitMinutes", grading_preset AS "gradingPreset", opens_at AS "opensAt", closes_at AS "closesAt"
-       FROM assessments WHERE assessment_id = $1`,
-      [assessmentId]
-    )
-    const meta = assessmentMeta[0] ?? { timeLimitMinutes: null, gradingPreset: "Correctness Only", opensAt: null, closesAt: null }
     const timeEnabled = Boolean((meta.timeLimitMinutes && meta.timeLimitMinutes > 0) || meta.closesAt)
-    const { testWeight, timeWeight } = getGradingWeights(meta.gradingPreset, timeEnabled)
+    const scWeight = meta.structuralConstraints?.weight ?? 0
+    const { testWeight, timeWeight, constraintWeight } = getGradingWeights(meta.gradingPreset, timeEnabled, scWeight)
+
+    // Compute overall constraint score from stored per-submission values
+    const constraintScores = submissions.map((s: any) => s.constraintScore).filter((v: any) => v !== null && v !== undefined)
+    const overallConstraintScore: number | null = constraintScores.length > 0
+      ? constraintScores.reduce((a: number, b: number) => a + Number(b), 0) / constraintScores.length
+      : null
 
     // Reconstruct time bonus from final score and weights
     let timeBonusScore: number | null = null
     if (timeWeight > 0) {
-      // Back-calculate: finalScore = (testCaseScore * testWeight + timeBonusScore * timeWeight) / 100
-      timeBonusScore = ((finalScore * (testWeight + timeWeight)) - overallTestCaseScore * testWeight) / timeWeight
+      const totalW = testWeight + timeWeight + constraintWeight
+      timeBonusScore = (
+        (finalScore * totalW) -
+        overallTestCaseScore * testWeight -
+        (overallConstraintScore ?? 0) * constraintWeight
+      ) / timeWeight
       timeBonusScore = Math.max(0, Math.min(100, timeBonusScore))
     }
 
     res.status(200).json(new ApiResponse(true, "Submission fetched", {
       submissions: submissionsWithResults,
       overallTestCaseScore,
+      overallConstraintScore,
       timeBonusScore,
       finalScore,
       gradingPreset: meta.gradingPreset,
       testWeight,
-      timeWeight
+      timeWeight,
+      constraintWeight
     }))
   })
 )

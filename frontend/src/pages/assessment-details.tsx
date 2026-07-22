@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
 import { useAssessment, useAttachProblemToAssessment, useUpdateAssessment, useDeleteAssessment, usePublishAssessment } from "../hooks/use-assessment"
 import { useProblems } from "../hooks/use-problem"
-import { updateAssessmentSchema, type UpdateAssessmentForm } from "../schemas/assessment.schema"
+import { updateAssessmentSchema, type UpdateAssessmentForm, REQUIRED_CONSTRAINTS, FORBIDDEN_CONSTRAINTS, FORBIDDEN_REQUIRED_CONFLICT, REQUIRED_FORBIDDEN_CONFLICT } from "../schemas/assessment.schema"
 
 export default function AssessmentDetails() {
   const { id } = useParams<{ id: string }>()
@@ -28,6 +28,8 @@ export default function AssessmentDetails() {
   const [isAddProblemModalOpen, setIsAddProblemModalOpen] = useState(false)
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
+  const [editRequired, setEditRequired] = useState<string[]>([])
+  const [editForbidden, setEditForbidden] = useState<string[]>([])
 
   // Helper to convert Date/ISO string (UTC from backend) to local datetime-local string (YYYY-MM-DDTHH:mm)
   const formatDateTimeLocal = (date: Date | string | null | undefined): string | null => {
@@ -77,6 +79,8 @@ export default function AssessmentDetails() {
         closesAt: formatDateTimeLocal(assessment.closesAt),
         gradingPreset: (assessment.gradingPreset as any) || "Correctness Only"
       })
+      setEditRequired(assessment.structuralConstraints?.required ?? [])
+      setEditForbidden(assessment.structuralConstraints?.forbidden ?? [])
     }
   }, [assessment, resetUpdateForm])
 
@@ -95,7 +99,10 @@ export default function AssessmentDetails() {
       const processedData = {
         ...data,
         opensAt: toISOString(data.opensAt),
-        closesAt: toISOString(data.closesAt)
+        closesAt: toISOString(data.closesAt),
+        structuralConstraints: (editRequired.length > 0 || editForbidden.length > 0)
+          ? { required: editRequired, forbidden: editForbidden, weight: 0 }
+          : null
       }
       await updateAssessmentMutation.mutateAsync(processedData)
       toast.success("Assessment updated successfully!")
@@ -201,6 +208,23 @@ export default function AssessmentDetails() {
             </span>
           )}
         </p>
+        {assessment.structuralConstraints && (
+          (assessment.structuralConstraints.required.length > 0 || assessment.structuralConstraints.forbidden.length > 0) && (
+            <div style={{ marginTop: "0.5rem", fontSize: "0.9rem" }}>
+              <strong>Structural Constraints (Python):</strong>
+              {assessment.structuralConstraints.required.length > 0 && (
+                <p style={{ margin: "0.25rem 0 0 0", color: "#166534" }}>
+                  ✅ Required: {assessment.structuralConstraints.required.join(", ")}
+                </p>
+              )}
+              {assessment.structuralConstraints.forbidden.length > 0 && (
+                <p style={{ margin: "0.25rem 0 0 0", color: "#991b1b" }}>
+                  🚫 Forbidden: {assessment.structuralConstraints.forbidden.join(", ")}
+                </p>
+              )}
+            </div>
+          )
+        )}
         {Boolean(assessment.timeLimitMinutes && assessment.timeLimitMinutes > 0) && (
           <p><strong>Time Limit:</strong> {assessment.timeLimitMinutes} minutes</p>
         )}
@@ -412,11 +436,62 @@ export default function AssessmentDetails() {
                   <option value="Correctness Only">Correctness Only — Test 100%, Time 0%</option>
                   <option value="Balanced">Balanced — Test 75%, Time Bonus 25%</option>
                   <option value="Speed Challenge">Speed Challenge — Test 50%, Time Bonus 50%</option>
+                  <option value="Structure + Tests">Structure + Tests — Test 50%, Constraints 50%</option>
+                  <option value="Mixed">Mixed — Test 50%, Constraints 25%, Time 25%</option>
+                  <option value="Structure Focus">Structure Focus — Test 30%, Constraints 70%</option>
                 </select>
                 <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.78rem", color: "#666" }}>
-                  💡 Note: Time bonus requires a time limit or closing deadline. If neither is set, test cases are automatically weighted at 100%.
+                  💡 Note: Time bonus requires a time limit or closing deadline. Structure presets only apply to Python problems.
                 </p>
                 {updateErrors.gradingPreset && <p style={{ color: "red", margin: "0.25rem 0 0 0" }}>{updateErrors.gradingPreset.message}</p>}
+              </div>
+              {/* Structural Constraints */}
+              <div style={{ marginBottom: "1rem", border: "1px solid #e5e7eb", borderRadius: "6px", padding: "1rem" }}>
+                <label style={{ display: "block", marginBottom: "0.75rem", fontWeight: 600 }}>Structural Constraints (Python only)</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem 2rem" }}>
+                  <div>
+                    <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>Required Structures</p>
+                    {REQUIRED_CONSTRAINTS.map(c => (
+                      <label key={c.key} style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem", fontSize: "0.9rem", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={editRequired.includes(c.key)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              const conflict = REQUIRED_FORBIDDEN_CONFLICT[c.key]
+                              if (conflict) setEditForbidden(prev => prev.filter(k => k !== conflict))
+                              setEditRequired(prev => [...prev, c.key])
+                            } else {
+                              setEditRequired(prev => prev.filter(k => k !== c.key))
+                            }
+                          }}
+                        />
+                        {c.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div>
+                    <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>Forbidden Structures</p>
+                    {FORBIDDEN_CONSTRAINTS.map(c => (
+                      <label key={c.key} style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem", fontSize: "0.9rem", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={editForbidden.includes(c.key)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              const conflict = FORBIDDEN_REQUIRED_CONFLICT[c.key]
+                              if (conflict) setEditRequired(prev => prev.filter(k => k !== conflict))
+                              setEditForbidden(prev => [...prev, c.key])
+                            } else {
+                              setEditForbidden(prev => prev.filter(k => k !== c.key))
+                            }
+                          }}
+                        />
+                        {c.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
                 <button type="button" onClick={() => setIsUpdateModalOpen(false)}>Cancel</button>

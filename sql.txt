@@ -200,3 +200,12 @@ ADD COLUMN grading_preset VARCHAR(30) NOT NULL DEFAULT 'Correctness Only';
 -- Final weighted score stored alongside the raw test-case score
 ALTER TABLE submissions
 ADD COLUMN final_score DECIMAL(5,2);
+
+-- Structural constraints: optional required/forbidden Python syntax elements
+-- JSON shape: { required: string[], forbidden: string[], weight: number }
+ALTER TABLE assessments
+ADD COLUMN structural_constraints JSONB;
+
+-- Constraint score per submission (0–100), NULL when no constraints configured
+ALTER TABLE submissions
+ADD COLUMN constraint_score DECIMAL(5,2);

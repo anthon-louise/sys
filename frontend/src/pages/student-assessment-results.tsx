@@ -45,9 +45,12 @@ function ScoreRing({ score, size = 120, label }: { score: number; size?: number;
 
 // ── Preset badge ────────────────────────────────────────────────────────────
 const PRESET_META: Record<string, { emoji: string; color: string; bg: string; desc: string }> = {
-  "Correctness Only": { emoji: "🎯", color: "#1d4ed8", bg: "#dbeafe", desc: "Test 100%" },
-  "Balanced":         { emoji: "⚖️", color: "#7c3aed", bg: "#ede9fe", desc: "Test 75% + Time 25%" },
-  "Speed Challenge":  { emoji: "⚡", color: "#b45309", bg: "#fef3c7", desc: "Test 50% + Time 50%" },
+  "Correctness Only":  { emoji: "🎯", color: "#1d4ed8", bg: "#dbeafe", desc: "Test 100%" },
+  "Balanced":          { emoji: "⚖️", color: "#7c3aed", bg: "#ede9fe", desc: "Test 75% + Time 25%" },
+  "Speed Challenge":   { emoji: "⚡", color: "#b45309", bg: "#fef3c7", desc: "Test 50% + Time 50%" },
+  "Structure + Tests": { emoji: "🧱", color: "#065f46", bg: "#d1fae5", desc: "Test 50% + Constraints 50%" },
+  "Mixed":             { emoji: "🔀", color: "#7e22ce", bg: "#f3e8ff", desc: "Test 50% + Constraints 25% + Time 25%" },
+  "Structure Focus":   { emoji: "📐", color: "#9a3412", bg: "#ffedd5", desc: "Test 30% + Constraints 70%" },
 }
 
 function PresetBadge({ preset }: { preset: string }) {
@@ -92,13 +95,16 @@ export default function StudentAssessmentResults() {
   }
 
   // ── Derived values ──────────────────────────────────────────────────────
-  const finalScore     = Number(submission?.finalScore ?? submission?.overallTestCaseScore ?? 0)
-  const testCaseScore  = Number(submission?.overallTestCaseScore ?? 0)
-  const timeBonusScore = submission?.timeBonusScore != null ? Number(submission.timeBonusScore) : null
-  const gradingPreset  = submission?.gradingPreset ?? "Correctness Only"
-  const testWeight     = submission?.testWeight   ?? 100
-  const timeWeight     = submission?.timeWeight   ?? 0
-  const hasTimeComponent = timeWeight > 0
+  const finalScore        = Number(submission?.finalScore ?? submission?.overallTestCaseScore ?? 0)
+  const testCaseScore     = Number(submission?.overallTestCaseScore ?? 0)
+  const timeBonusScore    = submission?.timeBonusScore != null ? Number(submission.timeBonusScore) : null
+  const constraintScore   = submission?.overallConstraintScore != null ? Number(submission.overallConstraintScore) : null
+  const gradingPreset     = submission?.gradingPreset ?? "Correctness Only"
+  const testWeight        = submission?.testWeight        ?? 100
+  const timeWeight        = submission?.timeWeight        ?? 0
+  const constraintWeight  = submission?.constraintWeight  ?? 0
+  const hasTimeComponent       = timeWeight > 0
+  const hasConstraintComponent = constraintWeight > 0
 
   return (
     <div style={{ maxWidth: "900px", margin: "2rem auto", padding: "0 1rem" }}>
@@ -136,6 +142,9 @@ export default function StudentAssessmentResults() {
               <ScoreRing score={testCaseScore} size={100} label={`Test Cases (${testWeight}%)`} />
               {hasTimeComponent && timeBonusScore != null && (
                 <ScoreRing score={timeBonusScore} size={100} label={`Time Bonus (${timeWeight}%)`} />
+              )}
+              {hasConstraintComponent && constraintScore != null && (
+                <ScoreRing score={constraintScore} size={100} label={`Structure (${constraintWeight}%)`} />
               )}
             </div>
           </div>
@@ -177,7 +186,7 @@ export default function StudentAssessmentResults() {
                 <td style={{ padding: "0.75rem", textAlign: "right" }}>{testCaseScore.toFixed(1)}%</td>
                 <td style={{ padding: "0.75rem", textAlign: "right" }}>{testWeight}%</td>
                 <td style={{ padding: "0.75rem", textAlign: "right", fontWeight: 600 }}>
-                  {((testCaseScore * testWeight) / (testWeight + timeWeight)).toFixed(1)} pts
+                  {((testCaseScore * testWeight) / (testWeight + timeWeight + constraintWeight)).toFixed(1)} pts
                 </td>
               </tr>
               {hasTimeComponent && timeBonusScore != null && (
@@ -186,7 +195,17 @@ export default function StudentAssessmentResults() {
                   <td style={{ padding: "0.75rem", textAlign: "right" }}>{timeBonusScore.toFixed(1)}%</td>
                   <td style={{ padding: "0.75rem", textAlign: "right" }}>{timeWeight}%</td>
                   <td style={{ padding: "0.75rem", textAlign: "right", fontWeight: 600 }}>
-                    {((timeBonusScore * timeWeight) / (testWeight + timeWeight)).toFixed(1)} pts
+                    {((timeBonusScore * timeWeight) / (testWeight + timeWeight + constraintWeight)).toFixed(1)} pts
+                  </td>
+                </tr>
+              )}
+              {hasConstraintComponent && constraintScore != null && (
+                <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
+                  <td style={{ padding: "0.75rem", fontWeight: 500 }}>🧱 Structure</td>
+                  <td style={{ padding: "0.75rem", textAlign: "right" }}>{constraintScore.toFixed(1)}%</td>
+                  <td style={{ padding: "0.75rem", textAlign: "right" }}>{constraintWeight}%</td>
+                  <td style={{ padding: "0.75rem", textAlign: "right", fontWeight: 600 }}>
+                    {((constraintScore * constraintWeight) / (testWeight + timeWeight + constraintWeight)).toFixed(1)} pts
                   </td>
                 </tr>
               )}
@@ -272,6 +291,45 @@ export default function StudentAssessmentResults() {
                       </div>
                       <span style={{ fontWeight: 700, fontSize: "0.9rem", color: tr.passed ? "#16a34a" : "#dc2626", flexShrink: 0 }}>
                         {tr.passed ? "✅ Passed" : "❌ Failed"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Structural Constraint Checks */}
+            {sub?.constraintDetails?.length > 0 && (
+              <div style={{ marginTop: "1rem" }}>
+                <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", fontWeight: 600, color: "#374151" }}>
+                  Structural Constraint Checks
+                </h4>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {sub.constraintDetails.map((cd: any, cdIdx: number) => (
+                    <div
+                      key={cdIdx}
+                      style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        border: "1px solid",
+                        borderColor: cd.passed ? "#bbf7d0" : "#fecaca",
+                        borderRadius: "8px", padding: "0.6rem 1rem",
+                        backgroundColor: cd.passed ? "#f0fdf4" : "#fff5f5"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{
+                          fontSize: "0.75rem", padding: "0.1rem 0.4rem", borderRadius: "4px", fontWeight: 600,
+                          backgroundColor: cd.type === "required" ? "#dbeafe" : "#fef3c7",
+                          color: cd.type === "required" ? "#1e40af" : "#92400e"
+                        }}>
+                          {cd.type === "required" ? "Required" : "Forbidden"}
+                        </span>
+                        <span style={{ fontWeight: 500, color: "#374151", fontSize: "0.88rem" }}>
+                          <code>{cd.rule}</code> — {cd.message}
+                        </span>
+                      </div>
+                      <span style={{ fontWeight: 700, fontSize: "0.88rem", color: cd.passed ? "#16a34a" : "#dc2626", flexShrink: 0 }}>
+                        {cd.passed ? "✅ Passed" : "❌ Failed"}
                       </span>
                     </div>
                   ))}
