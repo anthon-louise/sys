@@ -15,6 +15,7 @@ interface Assessment {
   isPublished: boolean
   opensAt: Date | null
   closesAt: Date | null
+  gradingPreset: string
 }
 
 interface AssessmentProblem {
@@ -110,7 +111,8 @@ export function useCreateAssessment() {
       timeLimitMinutes?: number, 
       problemIds?: number[],
       opensAt?: string | null,
-      closesAt?: string | null
+      closesAt?: string | null,
+      gradingPreset?: string
     }) => {
       // First create the assessment
       const res = await api.post("/assessments", {
@@ -121,7 +123,8 @@ export function useCreateAssessment() {
         academicTerm: data.academicTerm,
         timeLimitMinutes: data.timeLimitMinutes,
         opensAt: data.opensAt,
-        closesAt: data.closesAt
+        closesAt: data.closesAt,
+        gradingPreset: data.gradingPreset
       })
       const assessment = res.data.data
       
@@ -164,7 +167,8 @@ export function useUpdateAssessment(assessmentId: string | undefined) {
       academicTerm?: string
       timeLimitMinutes?: number | null,
       opensAt?: string | null,
-      closesAt?: string | null
+      closesAt?: string | null,
+      gradingPreset?: string
     }) => {
       const res = await api.put(`/assessments/${assessmentId}`, data)
       return res.data.data

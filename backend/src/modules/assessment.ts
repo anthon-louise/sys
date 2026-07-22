@@ -25,6 +25,7 @@ export interface Assessment {
   isPublished: boolean
   opensAt: Date | null
   closesAt: Date | null
+  gradingPreset: string
 }
 
 export interface AssessmentProblem {
@@ -40,6 +41,9 @@ export interface AssessmentProblem {
 
 // -- schemas --
 
+const GRADING_PRESETS = ["Correctness Only", "Balanced", "Speed Challenge"] as const
+export type GradingPreset = typeof GRADING_PRESETS[number]
+
 export const CreateAssessmentSchema = z.object({
   classroomId: z.number().int(),
   title: z.string().min(1).max(100),
@@ -48,7 +52,8 @@ export const CreateAssessmentSchema = z.object({
   academicTerm: z.enum(["Midterm", "Finals"]),
   timeLimitMinutes: z.number().int().optional(),
   opensAt: z.string().datetime({ offset: true }).optional().nullable(),
-  closesAt: z.string().datetime({ offset: true }).optional().nullable()
+  closesAt: z.string().datetime({ offset: true }).optional().nullable(),
+  gradingPreset: z.enum(GRADING_PRESETS).default("Correctness Only")
 })
 
 export const UpdateAssessmentSchema = z.object({
@@ -58,7 +63,8 @@ export const UpdateAssessmentSchema = z.object({
   academicTerm: z.enum(["Midterm", "Finals"]).optional(),
   timeLimitMinutes: z.number().int().optional().nullable(),
   opensAt: z.string().datetime({ offset: true }).optional().nullable(),
-  closesAt: z.string().datetime({ offset: true }).optional().nullable()
+  closesAt: z.string().datetime({ offset: true }).optional().nullable(),
+  gradingPreset: z.enum(GRADING_PRESETS).optional()
 })
 
 export const AttachProblemSchema = z.object({
@@ -76,12 +82,12 @@ assessmentRouter.post(
   protect,
   instructorOnly,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { classroomId, title, description, assessmentType, academicTerm, timeLimitMinutes, opensAt, closesAt } = CreateAssessmentSchema.parse(req.body)
+    const { classroomId, title, description, assessmentType, academicTerm, timeLimitMinutes, opensAt, closesAt, gradingPreset } = CreateAssessmentSchema.parse(req.body)
     const teacherId = req.user!.userId
 
     const { rows } = await db.query<Assessment>(
-      `INSERT INTO assessments (classroom_id, teacher_id, title, description, assessment_type, academic_term, time_limit_minutes, opens_at, closes_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO assessments (classroom_id, teacher_id, title, description, assessment_type, academic_term, time_limit_minutes, opens_at, closes_at, grading_preset)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING
          assessment_id      AS "assessmentId",
          classroom_id       AS "classroomId",
@@ -94,9 +100,10 @@ assessmentRouter.post(
          created_at         AS "createdAt",
          updated_at         AS "updatedAt",
          is_published       AS "isPublished",
-         opens_at AS "opensAt",
-         closes_at AS "closesAt"`,
-      [classroomId, teacherId, title, description || null, assessmentType, academicTerm, timeLimitMinutes || null, opensAt || null, closesAt || null]
+         opens_at           AS "opensAt",
+         closes_at          AS "closesAt",
+         grading_preset     AS "gradingPreset"`,
+      [classroomId, teacherId, title, description || null, assessmentType, academicTerm, timeLimitMinutes || null, opensAt || null, closesAt || null, gradingPreset]
     )
 
     res.status(201).json(new ApiResponse(true, "Assessment created successfully", rows[0]))
@@ -131,8 +138,9 @@ assessmentRouter.get(
          created_at         AS "createdAt",
          updated_at         AS "updatedAt",
          is_published       AS "isPublished",
-         opens_at AS "opensAt",
-         closes_at AS "closesAt"
+         opens_at           AS "opensAt",
+         closes_at          AS "closesAt",
+         grading_preset     AS "gradingPreset"
        FROM assessments
        WHERE assessment_id = $1 AND teacher_id = $2`,
       [assessmentId, teacherId]
@@ -249,6 +257,11 @@ assessmentRouter.put(
       updates.push(`closes_at = $${paramCount}`)
       values.push(updateData.closesAt || null)
     }
+    if (updateData.gradingPreset !== undefined) {
+      paramCount++
+      updates.push(`grading_preset = $${paramCount}`)
+      values.push(updateData.gradingPreset)
+    }
 
     if (updates.length === 0) {
       throw new ApiError("No fields to update", 400)
@@ -273,8 +286,9 @@ assessmentRouter.put(
          created_at         AS "createdAt",
          updated_at         AS "updatedAt",
          is_published       AS "isPublished",
-         opens_at AS "opensAt",
-         closes_at AS "closesAt"`,
+         opens_at           AS "opensAt",
+         closes_at          AS "closesAt",
+         grading_preset     AS "gradingPreset"`,
       values
     )
 
@@ -343,8 +357,9 @@ assessmentRouter.put(
          created_at         AS "createdAt",
          updated_at         AS "updatedAt",
          is_published       AS "isPublished",
-         opens_at AS "opensAt",
-         closes_at AS "closesAt"
+         opens_at           AS "opensAt",
+         closes_at          AS "closesAt",
+         grading_preset     AS "gradingPreset"
        FROM assessments
        WHERE assessment_id = $1 AND teacher_id = $2`,
       [assessmentId, teacherId]
@@ -379,8 +394,9 @@ assessmentRouter.put(
          created_at         AS "createdAt",
          updated_at         AS "updatedAt",
          is_published       AS "isPublished",
-         opens_at AS "opensAt",
-         closes_at AS "closesAt"`,
+         opens_at           AS "opensAt",
+         closes_at          AS "closesAt",
+         grading_preset     AS "gradingPreset"`,
       [assessmentId]
     )
 
@@ -488,8 +504,9 @@ assessmentRouter.get(
          created_at         AS "createdAt",
          updated_at         AS "updatedAt",
          is_published       AS "isPublished",
-         opens_at AS "opensAt",
-         closes_at AS "closesAt"
+         opens_at           AS "opensAt",
+         closes_at          AS "closesAt",
+         grading_preset     AS "gradingPreset"
        FROM assessments
        WHERE classroom_id = $1
        ORDER BY created_at DESC`,
@@ -527,17 +544,18 @@ assessmentRouter.get(
       `SELECT
          assessment_id      AS "assessmentId",
          classroom_id       AS "classroomId",
-         teacher_id     AS "teacherId",
+         teacher_id         AS "teacherId",
          title,
          description,
          assessment_type    AS "assessmentType",
-         academic_term    AS "academicTerm",
+         academic_term      AS "academicTerm",
          time_limit_minutes AS "timeLimitMinutes",
-         created_at     AS "createdAt",
-         updated_at     AS "updatedAt",
+         created_at         AS "createdAt",
+         updated_at         AS "updatedAt",
          is_published       AS "isPublished",
-         opens_at AS "opensAt",
-         closes_at AS "closesAt"
+         opens_at           AS "opensAt",
+         closes_at          AS "closesAt",
+         grading_preset     AS "gradingPreset"
        FROM assessments
        WHERE 
          classroom_id = $1 AND 
@@ -609,13 +627,14 @@ assessmentRouter.get(
          a.title,
          a.description,
          a.assessment_type    AS "assessmentType",
-         a.academic_term    AS "academicTerm",
+         a.academic_term      AS "academicTerm",
          a.time_limit_minutes AS "timeLimitMinutes",
-         a.created_at     AS "createdAt",
-         a.updated_at     AS "updatedAt",
+         a.created_at         AS "createdAt",
+         a.updated_at         AS "updatedAt",
          a.is_published       AS "isPublished",
-         a.opens_at AS "opensAt",
-         a.closes_at AS "closesAt"
+         a.opens_at           AS "opensAt",
+         a.closes_at          AS "closesAt",
+         a.grading_preset     AS "gradingPreset"
        FROM assessments a
        JOIN classroom_students cs ON a.classroom_id = cs.classroom_id
        WHERE 
@@ -666,10 +685,45 @@ export interface Submission {
   sourceCode: string
   language: string
   score: number
+  finalScore: number | null
   status: string
   executionTimeMs: number | null
   memoryUsedKb: number | null
   submittedAt: Date
+}
+
+// -- Grading preset weight lookup
+function getGradingWeights(preset: string, timeEnabled: boolean): { testWeight: number; timeWeight: number } {
+  if (!timeEnabled) {
+    // If time is disabled (no time limit & no deadline), test weight is forced to 100
+    return { testWeight: 100, timeWeight: 0 }
+  }
+  switch (preset) {
+    case "Balanced":        return { testWeight: 75, timeWeight: 25 }
+    case "Speed Challenge": return { testWeight: 50, timeWeight: 50 }
+    default:               return { testWeight: 100, timeWeight: 0 }  // 'Correctness Only'
+  }
+}
+
+// -- Compute time bonus score (0–100)
+// windowStart: session.started_at or assessment.opens_at
+// deadline:    assessment.closes_at
+// submittedAt: when the student submitted
+function computeTimeBonusScore(
+  windowStart: Date,
+  deadline: Date,
+  submittedAt: Date
+): number {
+  const totalMs = deadline.getTime() - windowStart.getTime()
+  if (totalMs <= 0) return 0
+
+  const elapsedMs = submittedAt.getTime() - windowStart.getTime()
+  const thresholdMs = 0.4 * totalMs
+
+  if (elapsedMs <= thresholdMs) return 100
+  if (elapsedMs >= totalMs) return 0
+
+  return 100 * (1 - (elapsedMs - thresholdMs) / (totalMs - thresholdMs))
 }
 
 export interface SubmissionTestResult {
@@ -687,7 +741,7 @@ assessmentRouter.get(
   "/student/problems/:problemId/test-cases",
   protect,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const problemId = parseInt(req.params.problemId, 10)
+    const problemId = parseInt(req.params.problemId as string, 10)
     const userId = req.user!.userId
 
     if (Number.isNaN(problemId)) {
@@ -796,7 +850,7 @@ assessmentRouter.post(
   "/student/assessments/:id/submit",
   protect,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const assessmentId = parseInt(req.params.id, 10)
+    const assessmentId = parseInt(req.params.id as string, 10)
     const userId = req.user!.userId
     const { problemSolutions } = req.body // Array of { problemId, sourceCode }
 
@@ -823,7 +877,8 @@ assessmentRouter.post(
 
     // Check session
     const { rows: sessionRows } = await db.query(
-      `SELECT ends_at, submitted_at FROM student_assessment_sessions WHERE assessment_id = $1 AND student_id = $2`,
+      `SELECT ends_at AS "endsAt", submitted_at AS "submittedAt", started_at AS "startedAt"
+       FROM student_assessment_sessions WHERE assessment_id = $1 AND student_id = $2`,
       [assessmentId, userId]
     )
     const session = sessionRows[0]
@@ -834,6 +889,18 @@ assessmentRouter.post(
       throw new ApiError("Assessment time expired", 400)
     }
 
+    // Fetch full assessment data for grading (preset, opens_at, closes_at, time_limit_minutes)
+    const { rows: assessmentMeta } = await db.query(
+      `SELECT time_limit_minutes AS "timeLimitMinutes", grading_preset AS "gradingPreset", opens_at AS "opensAt", closes_at AS "closesAt"
+       FROM assessments WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+    const { timeLimitMinutes, gradingPreset, opensAt: assessmentOpensAt, closesAt: assessmentClosesAt } = assessmentMeta[0]
+    
+    // Time is enabled only if there is a positive time limit or a closes_at deadline
+    const timeEnabled = Boolean((timeLimitMinutes && timeLimitMinutes > 0) || assessmentClosesAt)
+    const { testWeight, timeWeight } = getGradingWeights(gradingPreset, timeEnabled)
+
     // Get problems for this assessment
     const { rows: assessmentProblems } = await db.query(
       `SELECT problem_id AS "problemId" FROM assessment_problems WHERE assessment_id = $1`,
@@ -841,7 +908,8 @@ assessmentRouter.post(
     )
 
     const submissions = []
-    let totalScore = 0
+    let totalTestCaseScore = 0
+    let problemsWithSolutions = 0
 
     for (const ap of assessmentProblems) {
       const solution = problemSolutions?.find((s: any) => s.problemId === ap.problemId)
@@ -895,13 +963,14 @@ assessmentRouter.post(
 
       const testResults = await Promise.all(testCasePromises)
       const passedCount = testResults.filter(tr => tr.passed).length
-      const totalTime = testResults.reduce((acc, tr) => acc + (tr.executionTimeMs || 0), 0) / 1000 // Convert back to seconds for DB
+      const totalTime = testResults.reduce((acc, tr) => acc + (tr.executionTimeMs || 0), 0) / 1000
 
-      const score = testCases.length ? (passedCount / testCases.length) * 100 : 0
-      totalScore += score
-      const status = score === 100 ? "Correct" : score > 0 ? "Partial" : "Incorrect"
+      const testCaseScore = testCases.length ? (passedCount / testCases.length) * 100 : 0
+      totalTestCaseScore += testCaseScore
+      problemsWithSolutions++
+      const status = testCaseScore === 100 ? "Correct" : testCaseScore > 0 ? "Partial" : "Incorrect"
 
-      // Insert submission
+      // Insert submission (score = raw test-case score per problem)
       const { rows: subRows } = await db.query<Submission>(
         `INSERT INTO submissions (assessment_id, student_id, problem_id, source_code, language, score, status, execution_time_ms, memory_used_kb)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -925,7 +994,7 @@ assessmentRouter.post(
            execution_time_ms AS "executionTimeMs",
            memory_used_kb AS "memoryUsedKb",
            submitted_at AS "submittedAt"`,
-        [assessmentId, userId, problemId, sourceCode, language, score, status, totalTime ? Math.round(totalTime * 1000) : null, null]
+        [assessmentId, userId, problemId, sourceCode, language, testCaseScore, status, totalTime ? Math.round(totalTime * 1000) : null, null]
       )
 
       const submission = subRows[0]
@@ -949,18 +1018,53 @@ assessmentRouter.post(
     }
 
     // Mark session as submitted
-    await db.query(
+    const { rows: submittedSessionRows } = await db.query(
       `UPDATE student_assessment_sessions 
        SET submitted_at = NOW() 
-       WHERE assessment_id = $1 AND student_id = $2`,
+       WHERE assessment_id = $1 AND student_id = $2
+       RETURNING submitted_at AS "submittedAt", started_at AS "startedAt"`,
       [assessmentId, userId]
     )
+    const submittedAt = submittedSessionRows[0]?.submittedAt ?? now
 
-    const overallScore = assessmentProblems.length ? totalScore / assessmentProblems.length : 0
+    // -- Compute overall scores
+    const overallTestCaseScore = problemsWithSolutions > 0 ? totalTestCaseScore / problemsWithSolutions : 0
+
+    // Time bonus: calculated if time is enabled and deadline/end time exists
+    let timeBonusScore = 0
+    if (timeWeight > 0) {
+      // Determine deadline: session.endsAt if present, otherwise assessment.closesAt
+      const deadline = session.endsAt ? new Date(session.endsAt) : (assessmentClosesAt ? new Date(assessmentClosesAt) : null)
+      if (deadline) {
+        // If timeLimitMinutes is set, the student's timer window starts at session.startedAt
+        const windowStart = (timeLimitMinutes && timeLimitMinutes > 0)
+          ? new Date(session.startedAt)
+          : (assessmentOpensAt ? new Date(assessmentOpensAt) : new Date(session.startedAt))
+        timeBonusScore = computeTimeBonusScore(windowStart, deadline, new Date(submittedAt))
+      }
+    }
+
+    // Final weighted score
+    const totalWeight = testWeight + timeWeight
+    const finalScore = totalWeight > 0
+      ? (overallTestCaseScore * testWeight + timeBonusScore * timeWeight) / totalWeight
+      : overallTestCaseScore
+
+    // Persist final_score on all submissions for this assessment + student
+    await db.query(
+      `UPDATE submissions SET final_score = $1
+       WHERE assessment_id = $2 AND student_id = $3`,
+      [finalScore, assessmentId, userId]
+    )
 
     res.status(200).json(new ApiResponse(true, "Assessment submitted", {
       submissions,
-      overallScore
+      overallTestCaseScore,
+      timeBonusScore,
+      finalScore,
+      gradingPreset,
+      testWeight,
+      timeWeight
     }))
   })
 )
@@ -970,7 +1074,7 @@ assessmentRouter.get(
   "/student/assessments/:id/submission",
   protect,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const assessmentId = parseInt(req.params.id, 10)
+    const assessmentId = parseInt(req.params.id as string, 10)
     const userId = req.user!.userId
 
     if (Number.isNaN(assessmentId)) {
@@ -986,6 +1090,7 @@ assessmentRouter.get(
         source_code AS "sourceCode",
         language,
         score,
+        final_score AS "finalScore",
         status,
         execution_time_ms AS "executionTimeMs",
         memory_used_kb AS "memoryUsedKb",
@@ -994,6 +1099,12 @@ assessmentRouter.get(
        WHERE assessment_id = $1 AND student_id = $2`,
       [assessmentId, userId]
     )
+
+    // If no submissions, return null
+    if (submissions.length === 0) {
+      res.status(200).json(new ApiResponse(true, "No submission yet", null))
+      return
+    }
 
     // Get test results for each submission
     const submissionsWithResults = []
@@ -1017,17 +1128,37 @@ assessmentRouter.get(
       })
     }
 
-    // If no submissions, return null
-    if (submissions.length === 0) {
-      return res.status(200).json(new ApiResponse(true, "No submission yet", null))
-    }
+    // Compute aggregate scores from stored data
+    const overallTestCaseScore = submissions.reduce((acc, s) => acc + Number(s.score), 0) / submissions.length
+    // final_score is the same for all rows (assessment-level), grab from first
+    const finalScore = submissions[0].finalScore ?? overallTestCaseScore
 
-    // Calculate overall score
-    const overallScore = submissions.reduce((acc, s) => acc + s.score, 0) / submissions.length
+    // Fetch grading preset + weights for this assessment
+    const { rows: assessmentMeta } = await db.query(
+      `SELECT time_limit_minutes AS "timeLimitMinutes", grading_preset AS "gradingPreset", opens_at AS "opensAt", closes_at AS "closesAt"
+       FROM assessments WHERE assessment_id = $1`,
+      [assessmentId]
+    )
+    const meta = assessmentMeta[0] ?? { timeLimitMinutes: null, gradingPreset: "Correctness Only", opensAt: null, closesAt: null }
+    const timeEnabled = Boolean((meta.timeLimitMinutes && meta.timeLimitMinutes > 0) || meta.closesAt)
+    const { testWeight, timeWeight } = getGradingWeights(meta.gradingPreset, timeEnabled)
+
+    // Reconstruct time bonus from final score and weights
+    let timeBonusScore: number | null = null
+    if (timeWeight > 0) {
+      // Back-calculate: finalScore = (testCaseScore * testWeight + timeBonusScore * timeWeight) / 100
+      timeBonusScore = ((finalScore * (testWeight + timeWeight)) - overallTestCaseScore * testWeight) / timeWeight
+      timeBonusScore = Math.max(0, Math.min(100, timeBonusScore))
+    }
 
     res.status(200).json(new ApiResponse(true, "Submission fetched", {
       submissions: submissionsWithResults,
-      overallScore
+      overallTestCaseScore,
+      timeBonusScore,
+      finalScore,
+      gradingPreset: meta.gradingPreset,
+      testWeight,
+      timeWeight
     }))
   })
 )
@@ -1037,7 +1168,7 @@ assessmentRouter.post(
   "/student/assessments/:id/start-session",
   protect,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const assessmentId = parseInt(req.params.id, 10)
+    const assessmentId = parseInt(req.params.id as string, 10)
     const userId = req.user!.userId
 
     if (Number.isNaN(assessmentId)) throw new ApiError("Invalid assessment id", 400)
@@ -1074,7 +1205,8 @@ assessmentRouter.post(
     )
 
     if (existingRows[0]) {
-      return res.status(200).json(new ApiResponse(true, "Session already exists", existingRows[0]))
+      res.status(200).json(new ApiResponse(true, "Session already exists", existingRows[0]))
+      return
     }
 
     // Get assessment to calculate end time if needed
@@ -1111,7 +1243,7 @@ assessmentRouter.get(
   "/student/assessments/:id/session",
   protect,
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const assessmentId = parseInt(req.params.id, 10)
+    const assessmentId = parseInt(req.params.id as string, 10)
     const userId = req.user!.userId
 
     if (Number.isNaN(assessmentId)) throw new ApiError("Invalid assessment id", 400)

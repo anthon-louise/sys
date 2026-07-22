@@ -83,7 +83,8 @@ export default function ClassroomPage() {
       classroomId: id ? parseInt(id) : 0,
       problemIds: [],
       opensAt: null,
-      closesAt: null
+      closesAt: null,
+      gradingPreset: "Correctness Only"
     }
   })
 
@@ -207,7 +208,7 @@ export default function ClassroomPage() {
                   </div>
                   <p style={{ margin: "0 0 0.5rem 0", color: "#666" }}>Type: {assessment.assessmentType}</p>
                   <p style={{ margin: "0 0 0.5rem 0", color: "#666" }}>Term: {assessment.academicTerm}</p>
-                  {assessment.timeLimitMinutes && (
+                  {Boolean(assessment.timeLimitMinutes && assessment.timeLimitMinutes > 0) && (
                     <p style={{ margin: 0, color: "#666" }}>Time Limit: {assessment.timeLimitMinutes} mins</p>
                   )}
                 </div>
@@ -278,6 +279,17 @@ export default function ClassroomPage() {
                 <label style={{ display: "block", marginBottom: "0.25rem" }}>Closes At (optional)</label>
                 <input {...register("closesAt")} type="datetime-local" style={{ width: "100%", padding: "0.5rem", boxSizing: "border-box" }} />
                 {errors.closesAt && <p style={{ color: "red", margin: "0.25rem 0 0 0" }}>{errors.closesAt.message}</p>}
+              </div>
+              <div style={{ marginBottom: "1rem" }}>
+                <label style={{ display: "block", marginBottom: "0.25rem" }}>Grading Preset</label>
+                <select {...register("gradingPreset")} style={{ width: "100%", padding: "0.5rem", boxSizing: "border-box" }}>
+                  <option value="Correctness Only">Correctness Only — Test 100%, Time 0%</option>
+                  <option value="Balanced">Balanced — Test 75%, Time Bonus 25%</option>
+                  <option value="Speed Challenge">Speed Challenge — Test 50%, Time Bonus 50%</option>
+                </select>
+                <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.78rem", color: "#666" }}>
+                  💡 Note: Time bonus requires a time limit or closing deadline. If neither is set, test cases are automatically weighted at 100%.
+                </p>
               </div>
               <div style={{ marginBottom: "1rem" }}>
                 <label style={{ display: "block", marginBottom: "0.25rem" }}>Description (optional)</label>

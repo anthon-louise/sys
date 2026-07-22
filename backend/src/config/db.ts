@@ -12,5 +12,18 @@ export const db = new Pool({
 })
 
 db.connect()
-.then(() => console.log("Database Connected"))
-.catch((err) => console.error("DB connection error:", err))
+.then(async (client) => {
+    console.log("Database Connected")
+    try {
+        await client.query(`
+            ALTER TABLE assessments ADD COLUMN IF NOT EXISTS grading_preset VARCHAR(30) NOT NULL DEFAULT 'Correctness Only';
+            ALTER TABLE submissions ADD COLUMN IF NOT EXISTS final_score DECIMAL(5,2);
+        `)
+        console.log("Database migrations applied successfully.")
+    } catch (migErr) {
+        console.error("Migration error:", migErr)
+    } finally {
+        client.release()
+    }
+})
+.catch((err) => console.error("DB connection error:", err))

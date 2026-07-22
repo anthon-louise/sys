@@ -59,7 +59,8 @@ export default function AssessmentDetails() {
       academicTerm: assessment?.academicTerm || "Midterm",
       timeLimitMinutes: assessment?.timeLimitMinutes,
       opensAt: formatDateTimeLocal(assessment?.opensAt),
-      closesAt: formatDateTimeLocal(assessment?.closesAt)
+      closesAt: formatDateTimeLocal(assessment?.closesAt),
+      gradingPreset: (assessment?.gradingPreset as any) || "Correctness Only"
     }
   })
 
@@ -73,7 +74,8 @@ export default function AssessmentDetails() {
         academicTerm: assessment.academicTerm,
         timeLimitMinutes: assessment.timeLimitMinutes,
         opensAt: formatDateTimeLocal(assessment.opensAt),
-        closesAt: formatDateTimeLocal(assessment.closesAt)
+        closesAt: formatDateTimeLocal(assessment.closesAt),
+        gradingPreset: (assessment.gradingPreset as any) || "Correctness Only"
       })
     }
   }, [assessment, resetUpdateForm])
@@ -191,7 +193,17 @@ export default function AssessmentDetails() {
         <p><strong>Status:</strong> {assessment.isPublished ? "Published" : "Draft"}</p>
         <p><strong>Type:</strong> {assessment.assessmentType}</p>
         <p><strong>Academic Term:</strong> {assessment.academicTerm}</p>
-        {assessment.timeLimitMinutes && <p><strong>Time Limit:</strong> {assessment.timeLimitMinutes} minutes</p>}
+        <p>
+          <strong>Grading Preset:</strong> {assessment.gradingPreset || "Correctness Only"}
+          {(!assessment.timeLimitMinutes && !assessment.closesAt && (assessment.gradingPreset === "Balanced" || assessment.gradingPreset === "Speed Challenge")) && (
+            <span style={{ marginLeft: "0.5rem", fontSize: "0.85rem", color: "#d97706" }}>
+              (Time bonus disabled — no time limit or deadline set)
+            </span>
+          )}
+        </p>
+        {Boolean(assessment.timeLimitMinutes && assessment.timeLimitMinutes > 0) && (
+          <p><strong>Time Limit:</strong> {assessment.timeLimitMinutes} minutes</p>
+        )}
         {assessment.opensAt && <p><strong>Opens At:</strong> {new Date(assessment.opensAt).toLocaleString()}</p>}
         {assessment.closesAt && <p><strong>Closes At:</strong> {new Date(assessment.closesAt).toLocaleString()}</p>}
         {assessment.description && (
@@ -390,6 +402,21 @@ export default function AssessmentDetails() {
                   style={{ width: "100%", padding: "0.5rem", boxSizing: "border-box" }} 
                 />
                 {updateErrors.closesAt && <p style={{ color: "red", margin: "0.25rem 0 0 0" }}>{updateErrors.closesAt.message}</p>}
+              </div>
+              <div style={{ marginBottom: "1rem" }}>
+                <label style={{ display: "block", marginBottom: "0.25rem" }}>Grading Preset</label>
+                <select
+                  {...updateRegister("gradingPreset")}
+                  style={{ width: "100%", padding: "0.5rem", boxSizing: "border-box" }}
+                >
+                  <option value="Correctness Only">Correctness Only — Test 100%, Time 0%</option>
+                  <option value="Balanced">Balanced — Test 75%, Time Bonus 25%</option>
+                  <option value="Speed Challenge">Speed Challenge — Test 50%, Time Bonus 50%</option>
+                </select>
+                <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.78rem", color: "#666" }}>
+                  💡 Note: Time bonus requires a time limit or closing deadline. If neither is set, test cases are automatically weighted at 100%.
+                </p>
+                {updateErrors.gradingPreset && <p style={{ color: "red", margin: "0.25rem 0 0 0" }}>{updateErrors.gradingPreset.message}</p>}
               </div>
               <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
                 <button type="button" onClick={() => setIsUpdateModalOpen(false)}>Cancel</button>

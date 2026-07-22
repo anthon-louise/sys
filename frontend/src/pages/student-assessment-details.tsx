@@ -147,7 +147,7 @@ export default function StudentAssessmentDetails() {
             <h1 style={{ margin: "0 0 0.5rem 0" }}>{assessment.title}</h1>
             <p style={metaStyle}>Type: {assessment.assessmentType}</p>
             <p style={metaStyle}>Term: {assessment.academicTerm}</p>
-            {assessment.timeLimitMinutes && (
+            {Boolean(assessment.timeLimitMinutes && assessment.timeLimitMinutes > 0) && (
               <p style={metaStyle}>Time Limit: {assessment.timeLimitMinutes} mins</p>
             )}
             {assessment.opensAt && (

@@ -258,7 +258,7 @@ export default function StudentAssessmentTake() {
         <h2 style={{ margin: 0 }}>{assessment.title}</h2>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           {/* Session timer (time-limit based) */}
-          {assessment.timeLimitMinutes && (
+          {Boolean(assessment.timeLimitMinutes && assessment.timeLimitMinutes > 0) && (
             <div style={{
               fontSize: "1.5rem",
               fontWeight: "bold",
@@ -268,7 +268,7 @@ export default function StudentAssessmentTake() {
             </div>
           )}
           {/* Closes-at deadline badge (shown when no per-session timer, or as extra info) */}
-          {assessment.closesAt && !assessment.timeLimitMinutes && deadlineLabel && (
+          {assessment.closesAt && !Boolean(assessment.timeLimitMinutes && assessment.timeLimitMinutes > 0) && deadlineLabel && (
             <div style={{
               fontSize: "0.9rem",
               fontWeight: 600,

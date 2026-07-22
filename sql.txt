@@ -189,3 +189,14 @@ ADD COLUMN opens_at TIMESTAMPTZ;
 -- Schedule End Time / Deadline (NULL means no deadline)
 ALTER TABLE assessments 
 ADD COLUMN closes_at TIMESTAMPTZ;
+
+-- Grading preset: determines weighting between test score and time bonus
+-- Values: 'Correctness Only' (test 100, time 0)
+--         'Balanced'         (test 75, time 25)
+--         'Speed Challenge'  (test 50, time 50)
+ALTER TABLE assessments
+ADD COLUMN grading_preset VARCHAR(30) NOT NULL DEFAULT 'Correctness Only';
+
+-- Final weighted score stored alongside the raw test-case score
+ALTER TABLE submissions
+ADD COLUMN final_score DECIMAL(5,2);
